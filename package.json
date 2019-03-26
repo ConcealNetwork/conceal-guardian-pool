@@ -1,0 +1,17 @@
+{
+  "name": "concealnodepool",
+  "version": "1.0.0",
+  "description": "Conceal Pool for Conceal Nodes",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Taegus",
+  "license": "MIT",
+  "dependencies": {
+    "body-parser": "^1.18.3",
+    "config": "^3.0.1",
+    "express": "^4.16.4",
+    "node-cache": "^4.2.0"
+  }
+}

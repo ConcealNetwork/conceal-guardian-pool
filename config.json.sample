@@ -1,0 +1,9 @@
+{
+	"server": {
+		"port": 3000
+	},
+	"cache": {
+		"expire": 600,
+		"checkPeriod": 120
+	}
+}
