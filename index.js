@@ -11,7 +11,7 @@ app.use(bodyParser.json());
 
 // start listener
 app.listen(config.server.port, () => { 
-    console.log("Server running on port 3000"); 
+    console.log("Server running on port " + config.server.port); 
 });
 
 // get request for the list of all active nodes
@@ -39,3 +39,10 @@ app.post("/pool/update", (req, res, next) => {
         res.json({ "success": nodeCache.set(req.body.id, req.body, 600) });    
     }
 });
+
+// handle any application errors
+app.use(function (err, req, res, next) {
+    if (err) {
+        next(err);
+    }
+})
