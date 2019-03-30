@@ -3,11 +3,13 @@ const bodyParser = require("body-parser");
 const NodeCache = require( "node-cache" );
 const express = require("express");
 const config = require('./config.json');
+const cors = require('cors');
 
 var nodeCache = new NodeCache( { stdTTL: config.cache.expire, checkperiod: config.cache.checkPeriod } ); // the cache object
 var app = express(); // create express app
 // use the json parser for body
 app.use(bodyParser.json());
+app.use(cors());
 
 // start listener
 app.listen(config.server.port, () => { 
