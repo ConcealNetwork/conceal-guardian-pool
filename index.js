@@ -5,6 +5,7 @@ const express = require("express");
 const config = require('./config.json');
 const https = require('https');
 const cors = require('cors');
+const path = require('path');
 const fs = require('fs');
 
 var nodeCache = new NodeCache( { stdTTL: config.cache.expire, checkperiod: config.cache.checkPeriod } ); // the cache object
@@ -15,8 +16,8 @@ app.use(cors());
 
 // use HTTPS (SSL)
 https.createServer({
-    key: fs.readFileSync('./certificates/key.pem'),
-    cert: fs.readFileSync('./certificates/cert.pem'),
+    key: fs.readFileSync(path.join(path.dirname(require.main.filename), 'certificates/key.pem')),
+    cert: fs.readFileSync(path.join(path.dirname(require.main.filename), 'certificates/cert.pem')),
     passphrase: 'Ke2hK7c22umZ64Tv'
 }, app).listen(config.server.port, () => { 
     console.log("HTTPS Server running on port " + config.server.port); 
