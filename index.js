@@ -3,7 +3,6 @@ const bodyParser = require("body-parser");
 const NodeCache = require( "node-cache" );
 const express = require("express");
 const config = require('./config.json');
-const https = require('https');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
@@ -14,13 +13,9 @@ var app = express(); // create express app
 app.use(bodyParser.json());
 app.use(cors());
 
-// use HTTPS (SSL)
-https.createServer({
-    key: fs.readFileSync(path.join(path.dirname(require.main.filename), 'certificates/key.pem')),
-    cert: fs.readFileSync(path.join(path.dirname(require.main.filename), 'certificates/cert.pem')),
-    passphrase: 'Ke2hK7c22umZ64Tv'
-}, app).listen(config.server.port, () => { 
-    console.log("HTTPS Server running on port " + config.server.port); 
+// start listener
+app.listen(config.server.port, () => { 
+    console.log("Server running on port " + config.server.port); 
 });
 
 // get request for the list of all active nodes
