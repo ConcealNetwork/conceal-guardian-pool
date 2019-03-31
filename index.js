@@ -5,7 +5,7 @@ const express = require("express");
 const config = require("./config.json");
 const cors = require("cors");
 
-var nodeCache = new NodeCache({stdTTL: config.cache.expire, checkperiod: config.cache.checkPeriod}); // the cache object
+var nodeCache = new NodeCache({ stdTTL: config.cache.expire, checkperiod: config.cache.checkPeriod }); // the cache object
 var app = express(); // create express app
 // use the json parser for body
 app.use(bodyParser.json());
@@ -27,9 +27,9 @@ app.get("/pool/list", (req, res) => {
       });
 
       // return the list
-      res.json({success: true, list: nodeList});
+      res.json({ success: true, list: nodeList });
     } else {
-      res.json({success: false, list: []});
+      res.json({ success: false, list: [] });
     }
   });
 });
