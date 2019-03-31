@@ -15,9 +15,6 @@
     "express": "^4.16.4",
     "node-cache": "^4.2.0"
   },
-  "devDependencies": {
-    "jshint": "^2.10.2"
-  },
   "jshintConfig": {
     "expr": true,
     "esversion": 8
