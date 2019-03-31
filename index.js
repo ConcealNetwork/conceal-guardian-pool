@@ -37,7 +37,6 @@ app.get("/pool/list", (req, res) => {
 // post request for updating the node data
 app.post("/pool/update", (req, res) => {
   if (req.body) {
-    req.body.ip = req.header("x-forwarded-for") || req.connection.remoteAddress;
     res.json({
       success: nodeCache.set(req.body.id, req.body, 600)
     });
