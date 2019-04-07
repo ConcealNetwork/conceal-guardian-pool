@@ -1,14 +1,23 @@
 // redisDemo.js
 const bodyParser = require("body-parser");
 const NodeCache = require("node-cache");
+const jsonPath = require('jsonpath');
 const express = require("express");
 const config = require("./config.json");
+const Ddos = require('ddos');
 const cors = require("cors");
 
+// log the denial requests for pool
+const onDenial = function (req) {
+  // log it
+};
+
 var nodeCache = new NodeCache({ stdTTL: config.cache.expire, checkperiod: config.cache.checkPeriod }); // the cache object
+var ddos = new Ddos({ burst: 10, limit: 15, onDenial });
 var app = express(); // create express app
 // use the json parser for body
 app.use(bodyParser.json());
+app.use(ddos.express);
 app.use(cors());
 
 // start listener

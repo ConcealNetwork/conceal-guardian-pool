@@ -12,6 +12,7 @@
     "body-parser": "^1.18.3",
     "config": "^3.0.1",
     "cors": "^2.8.5",
+    "ddos": "^0.2.1",
     "express": "^4.16.4",
     "node-cache": "^4.2.0"
   },
