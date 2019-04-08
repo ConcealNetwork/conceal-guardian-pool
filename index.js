@@ -26,18 +26,33 @@ app.listen(config.server.port, () => {
   console.log(vsprintf("Server running on port %d", [config.server.port]));
 });
 
+function getAllNodes(keys) {
+  var nodeList = [];
+
+  keys.forEach(function (value) {
+    nodeList.push(nodeCache.get(value));
+  });
+
+  return nodeList;
+}
+
+function filterResults(req, values) {
+  return values.filter((value, index, array) => {
+    if (req.query.type) {
+      if ((req.query.type == "fee") && (!(value.blockchain && value.blockchain.fee_address))) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+}
+
 // get request for the list of all active nodes
 app.get("/pool/list", (req, res) => {
   nodeCache.keys(function (err, keys) {
     if (!err) {
-      var nodeList = [];
-
-      keys.forEach(function (value) {
-        nodeList.push(nodeCache.get(value));
-      });
-
-      // return the list
-      res.json({ success: true, list: nodeList });
+      res.json({ success: true, list: filterResults(req, getAllNodes(keys)) });
     } else {
       res.json({ success: false, list: [] });
     }
@@ -48,8 +63,8 @@ app.get("/pool/list", (req, res) => {
 app.get("/pool/random", (req, res) => {
   nodeCache.keys(function (err, keys) {
     if (!err) {
-      var randomKey = keys[Math.floor(Math.random() * keys.length)];
-      var randomNode = nodeCache.get(randomKey);
+      var nodeList = filterResults(req, getAllNodes(keys));
+      var randomNode = nodeList[Math.floor(Math.random() * nodeList.length)];
 
       if (randomNode) {
         res.json({ success: true, url: vsprintf("%s:%d", [randomNode.nodeHost, randomNode.nodePort]) });
@@ -68,7 +83,7 @@ app.post("/pool/update", (req, res) => {
     // check if node is already in pool
     if (!nodeCache.get(req.body.id)) {
       // initialize the conceal API with the client IP and daemon port
-      var CCXApi = new CCX(vsprintf("http://%s", [req.body.nodeHost]), "3333", req.body.nodePort);
+      var CCXApi = new CCX(vsprintf("http://%s", ["127.0.0.1"/*req.body.nodeHost*/]), "3333", req.body.nodePort);
 
       // if first request check if alive
       CCXApi.info().then(data => {
@@ -91,6 +106,9 @@ app.post("/pool/update", (req, res) => {
 // handle any application errors
 app.use(function (err, req, res, next) {
   if (err) {
-    next(err);
+    res.json({
+      success: false,
+      error: err
+    });
   }
 });
