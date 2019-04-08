@@ -38,10 +38,8 @@ function getAllNodes(keys) {
 
 function filterResults(req, values) {
   return values.filter((value, index, array) => {
-    if (req.query.type) {
-      if ((req.query.type == "fee") && (!(value.blockchain && value.blockchain.fee_address))) {
-        return false;
-      }
+    if (req.query.hasFeeAddr) {
+      return ((req.query.hasFeeAddr === "true") && (value.blockchain && value.blockchain.fee_address)) || ((req.query.hasFeeAddr === "false") && !(value.blockchain && value.blockchain.fee_address));
     }
 
     return true;
@@ -83,7 +81,7 @@ app.post("/pool/update", (req, res) => {
     // check if node is already in pool
     if (!nodeCache.get(req.body.id)) {
       // initialize the conceal API with the client IP and daemon port
-      var CCXApi = new CCX(vsprintf("http://%s", ["127.0.0.1"/*req.body.nodeHost*/]), "3333", req.body.nodePort);
+      var CCXApi = new CCX(vsprintf("http://%s", [req.body.nodeHost]), "3333", req.body.nodePort);
 
       // if first request check if alive
       CCXApi.info().then(data => {
