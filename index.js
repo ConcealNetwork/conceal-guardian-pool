@@ -3,23 +3,49 @@ const bodyParser = require("body-parser");
 const NodeCache = require("node-cache");
 const vsprintf = require("sprintf-js").vsprintf;
 const express = require("express");
+const winston = require('winston');
 const config = require("./config.json");
+const utils = require("./utils.js");
+const shell = require("shelljs");
 const Ddos = require('ddos');
 const cors = require("cors");
+const path = require("path");
 const CCX = require("conceal-js");
+const fs = require("fs");
+
+const logger = winston.createLogger({
+  transports: [
+    new winston.transports.Console(),
+    new winston.transports.File({ filename: path.join(utils.ensureUserDataDir(), 'debug.log') }),
+    new winston.transports.File({ filename: path.join(utils.ensureUserDataDir(), 'error.log'), level: 'error' })
+  ]
+});
 
 // log the denial requests for pool
 const onDenial = function (req) {
-  // log it
+  logger.error('Denied request because of DDOS detection!', req);
 };
 
 var nodeCache = new NodeCache({ stdTTL: config.cache.expire, checkperiod: config.cache.checkPeriod }); // the cache object
 var ddos = new Ddos({ burst: 10, limit: 15, onDenial });
 var app = express(); // create express app
-// use the json parser for body
+
+// attach other libraries to the express application
 app.use(bodyParser.json());
 app.use(ddos.express);
 app.use(cors());
+
+// handle any application errors
+app.use(function (err, req, res, next) {
+  if (err) {
+    logger.error('Error trying to execute request!', err);
+
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
 
 // start listener
 app.listen(config.server.port, () => {
@@ -58,7 +84,7 @@ app.get("/pool/list", (req, res) => {
 });
 
 // get the random node back to user
-app.get("/pool/random", (req, res) => {
+app.get("/pool/random", (req, res, next) => {
   nodeCache.keys(function (err, keys) {
     if (!err) {
       var nodeList = filterResults(req, getAllNodes(keys));
@@ -76,7 +102,7 @@ app.get("/pool/random", (req, res) => {
 });
 
 // post request for updating the node data
-app.post("/pool/update", (req, res) => {
+app.post("/pool/update", (req, res, next) => {
   if ((req.body) && (req.body.id) && (req.body.nodeHost) && (req.body.nodePort)) {
     // check if node is already in pool
     if (!nodeCache.get(req.body.id)) {
@@ -85,8 +111,10 @@ app.post("/pool/update", (req, res) => {
 
       // if first request check if alive
       CCXApi.info().then(data => {
+        logger.info('New node has been registered to the pool', req.body);
+
         res.json({
-          success: nodeCache.set(req.body.id, req.body, 600)
+          success: nodeCache.set(req.body.id, req.body, config.cache.expire)
         });
       }).catch(err => {
         res.json({
@@ -95,18 +123,8 @@ app.post("/pool/update", (req, res) => {
       });
     } else {
       res.json({
-        success: nodeCache.set(req.body.id, req.body, 600)
+        success: nodeCache.set(req.body.id, req.body, config.cache.expire)
       });
     }
-  }
-});
-
-// handle any application errors
-app.use(function (err, req, res, next) {
-  if (err) {
-    res.json({
-      success: false,
-      error: err
-    });
   }
 });
