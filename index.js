@@ -14,20 +14,37 @@ const CCX = require("conceal-js");
 const fs = require("fs");
 
 const logger = winston.createLogger({
+  exitOnError: false, // do not exit on handled exceptions
   transports: [
     new winston.transports.Console(),
-    new winston.transports.File({ filename: path.join(utils.ensureUserDataDir(), 'debug.log') }),
-    new winston.transports.File({ filename: path.join(utils.ensureUserDataDir(), 'error.log'), level: 'error' })
+    new winston.transports.File({
+      filename: path.join(utils.ensureUserDataDir(), 'info.log'),
+      maxsize: 10000000,
+      maxFiles: 5
+    }),
+    new winston.transports.File({
+      filename: path.join(utils.ensureUserDataDir(), 'errors.log'),
+      maxsize: 10000000,
+      maxFiles: 5,
+      level: 'error'
+    })
+  ],
+  exceptionHandlers: [
+    new transports.File({
+      filename: path.join(utils.ensureUserDataDir(), 'exceptions.log'),
+      maxsize: 10000000,
+      maxFiles: 5
+    })
   ]
 });
 
 // log the denial requests for pool
 const onDenial = function (req) {
-  logger.error('Denied request because of DDOS detection!', req);
+  logger.error('Denied request because of DDOS detection!');
 };
 
 var nodeCache = new NodeCache({ stdTTL: config.cache.expire, checkperiod: config.cache.checkPeriod }); // the cache object
-var ddos = new Ddos({ burst: 10, limit: 15, onDenial });
+var ddos = new Ddos({ burst: 5, limit: 15, onDenial });
 var app = express(); // create express app
 
 // attach other libraries to the express application
