@@ -37,12 +37,23 @@ const logger = winston.createLogger({
   ]
 });
 
-const limiter = rateLimit({
+// update node data limiter
+const updateNodeLimier = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
   max: 15, // limit each IP to 15 requests per windowMs
   message: "Too many requests created from this IP, please try again later",
   onLimitReached: function (req, res, options) {
-    logger.error('Denied request because of to many requests in short period!');
+    logger.error('Denied update node request because of to many requests in short period!');
+  }
+});
+
+// update node data limiter
+const listNodesLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 150, // limit each IP to 15 requests per windowMs
+  message: "Too many requests created from this IP, please try again later",
+  onLimitReached: function (req, res, options) {
+    logger.error('Denied list nodes request because of to many requests in short period!');
   }
 });
 
@@ -52,7 +63,6 @@ var app = express(); // create express app
 // attach other libraries to the express application
 app.enable("trust proxy");
 app.use(bodyParser.json());
-app.use(limiter);
 app.use(cors());
 
 // handle any application errors
@@ -93,7 +103,7 @@ function filterResults(req, values) {
 }
 
 // get request for the list of all active nodes
-app.get("/pool/list", (req, res) => {
+app.get("/pool/list", listNodesLimiter, (req, res) => {
   nodeCache.keys(function (err, keys) {
     if (!err) {
       res.json({ success: true, list: filterResults(req, getAllNodes(keys)) });
@@ -104,7 +114,7 @@ app.get("/pool/list", (req, res) => {
 });
 
 // get the random node back to user
-app.get("/pool/random", (req, res, next) => {
+app.get("/pool/random", listNodesLimiter, (req, res, next) => {
   nodeCache.keys(function (err, keys) {
     if (!err) {
       var nodeList = filterResults(req, getAllNodes(keys));
@@ -122,7 +132,7 @@ app.get("/pool/random", (req, res, next) => {
 });
 
 // post request for updating the node data
-app.post("/pool/update", (req, res, next) => {
+app.post("/pool/update", updateNodeLimier, (req, res, next) => {
   if ((req.body) && (req.body.id) && (req.body.nodeHost) && (req.body.nodePort)) {
     // check if node is already in pool
     if (!nodeCache.get(req.body.id)) {
