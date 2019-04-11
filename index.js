@@ -1,4 +1,5 @@
 // redisDemo.js
+const rateLimit = require("express-rate-limit");
 const bodyParser = require("body-parser");
 const NodeCache = require("node-cache");
 const vsprintf = require("sprintf-js").vsprintf;
@@ -6,8 +7,6 @@ const express = require("express");
 const winston = require('winston');
 const config = require("./config.json");
 const utils = require("./utils.js");
-const shell = require("shelljs");
-const Ddos = require('ddos');
 const cors = require("cors");
 const path = require("path");
 const CCX = require("conceal-js");
@@ -30,7 +29,7 @@ const logger = winston.createLogger({
     })
   ],
   exceptionHandlers: [
-    new transports.File({
+    new winston.transports.File({
       filename: path.join(utils.ensureUserDataDir(), 'exceptions.log'),
       maxsize: 10000000,
       maxFiles: 5
@@ -38,18 +37,22 @@ const logger = winston.createLogger({
   ]
 });
 
-// log the denial requests for pool
-const onDenial = function (req) {
-  logger.error('Denied request because of DDOS detection!');
-};
+const limiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 15, // limit each IP to 15 requests per windowMs
+  message: "Too many requests created from this IP, please try again later",
+  onLimitReached: function (req, res, options) {
+    logger.error('Denied request because of to many requests in short period!');
+  }
+});
 
 var nodeCache = new NodeCache({ stdTTL: config.cache.expire, checkperiod: config.cache.checkPeriod }); // the cache object
-var ddos = new Ddos({ burst: 5, limit: 15, onDenial });
 var app = express(); // create express app
 
 // attach other libraries to the express application
+app.enable("trust proxy");
 app.use(bodyParser.json());
-app.use(ddos.express);
+app.use(limiter);
 app.use(cors());
 
 // handle any application errors

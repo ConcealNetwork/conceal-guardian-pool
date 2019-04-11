@@ -13,10 +13,9 @@
     "conceal-js": "^0.7.2",
     "config": "^3.0.1",
     "cors": "^2.8.5",
-    "ddos": "^0.2.1",
     "express": "^4.16.4",
+    "express-rate-limit": "^3.4.0",
     "node-cache": "^4.2.0",
-    "shelljs": "^0.8.3",
     "sprintf-js": "^1.1.2",
     "winston": "^3.2.1"
   },
