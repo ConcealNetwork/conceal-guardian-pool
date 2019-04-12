@@ -95,7 +95,8 @@ function getAllNodes(keys) {
 function filterResults(req, values) {
   return values.filter((value, index, array) => {
     if (req.query.hasFeeAddr) {
-      return ((req.query.hasFeeAddr === "true") && (value.blockchain && value.blockchain.fee_address)) || ((req.query.hasFeeAddr === "false") && !(value.blockchain && value.blockchain.fee_address));
+      var hasFeeAddress = value.blockchain && value.blockchain.fee_address;
+      return ((req.query.hasFeeAddr === "true") && hasFeeAddress) || ((req.query.hasFeeAddr === "false") && !hasFeeAddress);
     }
 
     return true;
