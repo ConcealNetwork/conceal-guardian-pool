@@ -50,7 +50,7 @@ const updateNodeLimier = rateLimit({
 // update node data limiter
 const listNodesLimiter = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 150, // limit each IP to 15 requests per windowMs
+  max: 300, // limit each IP to 15 requests per windowMs
   message: "Too many requests created from this IP, please try again later",
   onLimitReached: function (req, res, options) {
     logger.error('Denied list nodes request because of to many requests in short period!');
