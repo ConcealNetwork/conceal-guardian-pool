@@ -46,7 +46,8 @@ const updateNodeLimier = rateLimit({
   max: 15, // limit each IP to 15 requests per windowMs
   message: "Too many requests created from this IP, please try again later",
   onLimitReached: function (req, res, options) {
-    logger.error('Denied update node request because of to many requests in short period!');
+    remoteIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    logger.error(vsprintf('Denied update node request because of to many requests in short period from IP %s', [remoteIP]));
   }
 });
 
@@ -56,7 +57,8 @@ const listNodesLimiter = rateLimit({
   max: 300, // limit each IP to 15 requests per windowMs
   message: "Too many requests created from this IP, please try again later",
   onLimitReached: function (req, res, options) {
-    logger.error('Denied list nodes request because of to many requests in short period!');
+    remoteIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    logger.error(vsprintf('Denied list nodes request because of to many requests in short period from IP %s', [remoteIP]));
   }
 });
 
