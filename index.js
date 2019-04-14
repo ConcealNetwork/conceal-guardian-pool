@@ -97,12 +97,19 @@ function getAllNodes(keys) {
 
 function filterResults(req, values) {
   return values.filter((value, index, array) => {
+    var isAppropriate = true;
+
     if (req.query.hasFeeAddr) {
       var hasFeeAddress = value.blockchain && value.blockchain.fee_address;
-      return ((req.query.hasFeeAddr === "true") && hasFeeAddress) || ((req.query.hasFeeAddr === "false") && !hasFeeAddress);
+      isAppropriate = isAppropriate && (((req.query.hasFeeAddr === "true") && hasFeeAddress) || ((req.query.hasFeeAddr === "false") && !hasFeeAddress));
     }
 
-    return true;
+    if (req.query.isReachable) {
+      var isReachable = value.status && value.status.isReachable;
+      isAppropriate = isAppropriate && (((req.query.isReachable === "true") && isReachable) || ((req.query.isReachable === "false") && !isReachable));
+    }
+
+    return isAppropriate;
   });
 }
 
