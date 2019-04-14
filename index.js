@@ -15,6 +15,16 @@ const fs = require("fs");
 // query api timeout
 const apiTimeout = 3000;
 
+// message base for winston logging
+const MESSAGE = Symbol.for('message');
+
+const logFormatter = (logEntry) => {
+  const base = { timestamp: new Date() };
+  const json = Object.assign(base, logEntry);
+  logEntry[MESSAGE] = JSON.stringify(json);
+  return logEntry;
+};
+
 const logger = winston.createLogger({
   exitOnError: false, // do not exit on handled exceptions
   transports: [
@@ -37,7 +47,8 @@ const logger = winston.createLogger({
       maxsize: 10000000,
       maxFiles: 5
     })
-  ]
+  ],
+  format: winston.format(logFormatter)()
 });
 
 // update node data limiter
@@ -64,7 +75,7 @@ var nodeCache = new NodeCache({ stdTTL: config.cache.expire, checkperiod: config
 var app = express(); // create express app
 
 // attach other libraries to the express application
-app.enable("trust proxy");
+app.enable("trust proxy", '127.0.0.1');
 app.use(bodyParser.json());
 app.use(cors());
 
