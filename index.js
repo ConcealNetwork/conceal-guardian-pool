@@ -9,8 +9,11 @@ const config = require("./config.json");
 const utils = require("./utils.js");
 const cors = require("cors");
 const path = require("path");
-const CCX = require("conceal-js");
+const CCX = require("conceal-api");
 const fs = require("fs");
+
+// query api timeout
+const apiTimeout = 3000;
 
 const logger = winston.createLogger({
   exitOnError: false, // do not exit on handled exceptions
@@ -135,27 +138,14 @@ app.get("/pool/random", listNodesLimiter, (req, res, next) => {
 // post request for updating the node data
 app.post("/pool/update", updateNodeLimier, (req, res, next) => {
   if ((req.body) && (req.body.id) && (req.body.nodeHost) && (req.body.nodePort)) {
-    // check if node is already in pool
-    if (!nodeCache.get(req.body.id)) {
-      // initialize the conceal API with the client IP and daemon port
-      var CCXApi = new CCX(vsprintf("http://%s", [req.body.nodeHost]), "3333", req.body.nodePort);
+    var CCXApi = new CCX(vsprintf("http://%s", [req.body.nodeHost]), "3333", req.body.nodePort, apiTimeout);
 
-      // if first request check if alive
-      CCXApi.info().then(data => {
-        logger.info('New node has been registered to the pool', req.body);
-
-        res.json({
-          success: nodeCache.set(req.body.id, req.body, config.cache.expire)
-        });
-      }).catch(err => {
-        res.json({
-          success: false
-        });
-      });
-    } else {
-      res.json({
-        success: nodeCache.set(req.body.id, req.body, config.cache.expire)
-      });
-    }
+    CCXApi.info().then(data => {
+      req.body.status.isReachable = true;
+      res.json({ success: nodeCache.set(req.body.id, req.body, config.cache.expire) });
+    }).catch(err => {
+      req.body.status.isReachable = false;
+      res.json({ success: nodeCache.set(req.body.id, req.body, config.cache.expire) });
+    });
   }
 });
