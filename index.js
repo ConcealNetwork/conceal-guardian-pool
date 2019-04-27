@@ -156,7 +156,7 @@ app.get("/pool/random", listNodesLimiter, (req, res, next) => {
 // post request for updating the node data
 app.post("/pool/update", updateNodeLimier, (req, res, next) => {
   if ((req.body) && (req.body.id) && (req.body.nodeHost) && (req.body.nodePort)) {
-    var CCXApi = new CCX(vsprintf("http://%s", [req.body.nodeHost]), "3333", req.body.nodePort, apiTimeout);
+    var CCXApi = new CCX(vsprintf("http://%s", [req.body.url ? req.body.url.host : req.body.nodeHost]), "3333", req.body.url ? req.body.url.port : req.body.nodePort, apiTimeout);
 
     CCXApi.info().then(data => {
       req.body.status.isReachable = true;
