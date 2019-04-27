@@ -1,11 +1,12 @@
-// redisDemo.js
 const rateLimit = require("express-rate-limit");
 const bodyParser = require("body-parser");
 const NodeCache = require("node-cache");
 const vsprintf = require("sprintf-js").vsprintf;
+const database = require("./database.js");
 const express = require("express");
 const winston = require('winston');
 const config = require("./config.json");
+const moment = require('moment');
 const utils = require("./utils.js");
 const cors = require("cors");
 const path = require("path");
@@ -72,6 +73,7 @@ const listNodesLimiter = rateLimit({
 });
 
 var nodeCache = new NodeCache({ stdTTL: config.cache.expire, checkperiod: config.cache.checkPeriod }); // the cache object
+var storage = new database(); // create a new storage instance
 var app = express(); // create express app
 
 // attach other libraries to the express application
@@ -124,6 +126,31 @@ function filterResults(req, values) {
   });
 }
 
+function setNodeData(data, isReachable) {
+  data.status.isReachable = isReachable;
+  data.status.lastSeen = moment().toISOString();
+  return nodeCache.set(data.id, data, config.cache.expire);
+}
+
+// update uptime for nodes
+function checkNodesUptimeStatus() {
+  nodeCache.keys(function (err, keys) {
+    if (!err) {
+      for (var key of keys) {
+        var nodeData = nodeCache.get(key);
+        var lastSeen = moment(nodeData.status.lastSeen);
+
+        if (moment.duration(moment(new Date()).diff(lastSeen)).asMinutes() < config.uptime.period) {
+          storage.increaseClientTick(key);
+        }
+      }
+    }
+  });
+
+  // increase the server tick count
+  storage.increaseServerTick();
+}
+
 // get request for the list of all active nodes
 app.get("/pool/list", listNodesLimiter, (req, res) => {
   nodeCache.keys(function (err, keys) {
@@ -159,11 +186,21 @@ app.post("/pool/update", updateNodeLimier, (req, res, next) => {
     var CCXApi = new CCX(vsprintf("http://%s", [req.body.url ? req.body.url.host : req.body.nodeHost]), "3333", req.body.url ? req.body.url.port : req.body.nodePort, apiTimeout);
 
     CCXApi.info().then(data => {
-      req.body.status.isReachable = true;
-      res.json({ success: nodeCache.set(req.body.id, req.body, config.cache.expire) });
+      res.json({ success: setNodeData(req.body, true) });
     }).catch(err => {
-      req.body.status.isReachable = false;
-      res.json({ success: nodeCache.set(req.body.id, req.body, config.cache.expire) });
+      res.json({ success: setNodeData(req.body, false) });
     });
   }
 });
+
+// post request for updating the node data
+app.post("/pool/uptime", listNodesLimiter, (req, res, next) => {
+  if (req.body) {
+    storage.getClientUptime(req.body, function (resultData) {
+      res.json(resultData);
+    });
+  }
+});
+
+// set the interval for the uptime check of all nodes
+setInterval(checkNodesUptimeStatus, config.uptime.period * 1000);
