@@ -55,7 +55,7 @@ const logger = winston.createLogger({
 // update node data limiter
 const updateNodeLimier = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 15, // limit each IP to 15 requests per windowMs
+  max: 30, // limit each IP to 15 requests per windowMs
   message: "Too many requests created from this IP, please try again later",
   onLimitReached: function (req, res, options) {
     logger.error(vsprintf('Denied update node request because of to many requests in short period from IP %s', [req.ip]));
@@ -194,7 +194,7 @@ app.post("/pool/update", updateNodeLimier, (req, res, next) => {
 });
 
 // post request for updating the node data
-app.post("/pool/uptime", listNodesLimiter, (req, res, next) => {
+app.all("/pool/uptime", listNodesLimiter, (req, res, next) => {
   if (req.body) {
     storage.getClientUptime(req.body, function (resultData) {
       res.json(resultData);
