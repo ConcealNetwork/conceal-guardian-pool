@@ -126,10 +126,17 @@ function filterResults(req, values) {
   });
 }
 
-function setNodeData(data, isReachable) {
-  data.status.isReachable = isReachable;
-  data.status.lastSeen = moment().toISOString();
-  return nodeCache.set(data.id, data, config.cache.expire);
+function setNodeData(data, isReachable, callback) {
+  storage.getClientUptime({ id: [data.id], year: moment().year(), month: moment().month() + 1 }, function (resultData) {
+    data.status.isReachable = isReachable;
+    data.status.lastSeen = moment().toISOString();
+
+    if (resultData && resultData.uptimes && (resultData.uptimes.length == 1)) {
+      data.status.uptime = Math.round((resultData.uptimes[0].clientTicks / resultData.uptimes[0].serverTicks) * 100);
+    }
+
+    callback(nodeCache.set(data.id, data, config.cache.expire));
+  });
 }
 
 // update uptime for nodes
@@ -186,9 +193,13 @@ app.post("/pool/update", updateNodeLimier, (req, res, next) => {
     var CCXApi = new CCX(vsprintf("http://%s", [req.body.url ? req.body.url.host : req.body.nodeHost]), "3333", req.body.url ? req.body.url.port : req.body.nodePort, apiTimeout);
 
     CCXApi.info().then(data => {
-      res.json({ success: setNodeData(req.body, true) });
+      setNodeData(req.body, true, function (result) {
+        res.json({ success: result });
+      });
     }).catch(err => {
-      res.json({ success: setNodeData(req.body, false) });
+      setNodeData(req.body, false, function (result) {
+        res.json({ success: result });
+      });
     });
   }
 });

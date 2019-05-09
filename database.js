@@ -84,16 +84,23 @@ function database() {
                      (uptime_client.MONTH = uptime_server.MONTH)`;
     var paramList = [];
 
+    if (params.id) {
+      var idArrayAsStr = JSON.stringify(params.id);
+      idArrayAsStr = idArrayAsStr.replace("[", "(");
+      idArrayAsStr = idArrayAsStr.replace("]", ")");
+      paramList.push(vsprintf('(uptime_client.NODE IN %s)', [idArrayAsStr]));
+    }
+
     if (params.year) {
-      paramList.push(vsprintf('(uptime_client.YEAR = %d)', [moment().year()]));
+      paramList.push(vsprintf('(uptime_client.YEAR = %d)', [params.year]));
     }
 
     if (params.month) {
-      paramList.push(vsprintf('(uptime_client.MONTH = %d)', [moment().month() + 1]));
+      paramList.push(vsprintf('(uptime_client.MONTH = %d)', [params.month]));
     }
 
     if (paramList.length > 0) {
-      selectSQL = selectSQL + " WHERE" + paramList.join(" AND ");
+      selectSQL = selectSQL + " WHERE " + paramList.join(" AND ");
     }
 
     db.all(selectSQL, [], function (err, rows) {
