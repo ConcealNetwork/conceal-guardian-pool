@@ -202,5 +202,10 @@ app.all("/pool/uptime", listNodesLimiter, (req, res, next) => {
   }
 });
 
+// get request for the list of all active nodes
+app.get("/pool/stats", listNodesLimiter, (req, res) => {
+  res.json(nodeCache.getStats());
+});
+
 // set the interval for the uptime check of all nodes
 setInterval(checkNodesUptimeStatus, config.uptime.period * 1000);
