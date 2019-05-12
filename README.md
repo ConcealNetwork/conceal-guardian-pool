@@ -34,8 +34,8 @@ To call **/pool/uptime** endpoint you can do either an get or post request. If y
 ```
 {
 	"id": ["19f0b65e-ea13-4f1c-be15-035568051103", "235cbefa-91b3-453e-8eda-e907be6624aa"],
-  	"month": 5,
-  	"year": 2019
+  	"month": [5,6],
+  	"year": [2019]
 }
 ```
 
