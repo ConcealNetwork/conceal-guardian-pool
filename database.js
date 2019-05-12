@@ -20,6 +20,12 @@ function database() {
     }
   });
 
+  function arrayToSQL(parameter) {
+    var idArrayAsStr = JSON.stringify(parameter);
+    idArrayAsStr = idArrayAsStr.replace("[", "(");
+    return idArrayAsStr.replace("]", ")");
+  }
+
   this.increaseClientTick = function (nodeId) {
     var selectSQL = "SELECT * FROM uptime_client WHERE (NODE = ?) AND (YEAR = ?) AND (MONTH = ?)";
     var insertSQL = "INSERT INTO uptime_client(NODE, YEAR, MONTH, TICKS) VALUES(?, ?, ?, 0)";
@@ -84,18 +90,16 @@ function database() {
     var paramList = [];
 
     if (params.id) {
-      var idArrayAsStr = JSON.stringify(params.id);
-      idArrayAsStr = idArrayAsStr.replace("[", "(");
-      idArrayAsStr = idArrayAsStr.replace("]", ")");
-      paramList.push(vsprintf('(uptime_client.NODE IN %s)', [idArrayAsStr]));
+
+      paramList.push(vsprintf('(uptime_client.NODE IN %s)', [arrayToSQL(params.id)]));
     }
 
     if (params.year) {
-      paramList.push(vsprintf('(uptime_client.YEAR = %d)', [params.year]));
+      paramList.push(vsprintf('(uptime_client.YEAR in %s)', [arrayToSQL(params.year)]));
     }
 
     if (params.month) {
-      paramList.push(vsprintf('(uptime_client.MONTH = %d)', [params.month]));
+      paramList.push(vsprintf('(uptime_client.MONTH in %s)', [arrayToSQL(params.month)]));
     }
 
     if (paramList.length > 0) {

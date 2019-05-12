@@ -127,7 +127,7 @@ function filterResults(req, values) {
 }
 
 function setNodeData(data, isReachable, callback) {
-  storage.getClientUptime({ id: [data.id], year: moment().year(), month: moment().month() + 1 }, function (resultData) {
+  storage.getClientUptime({ id: [data.id], year: [moment().year()], month: [moment().month() + 1] }, function (resultData) {
     data.status.isReachable = isReachable;
     data.status.lastSeen = moment().toISOString();
 
