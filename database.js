@@ -74,14 +74,13 @@ function database() {
 
   this.getClientUptime = function (params, callback) {
     var selectSQL = `SELECT uptime_client.NODE as 'id', 
-                            uptime_client.YEAR as 'year',   
-                            uptime_client.MONTH as 'month',   
-                            uptime_client.TICKS as 'clientTicks',   
-                            uptime_server.TICKS as 'serverTicks'   
+                            sum(uptime_client.TICKS) as 'clientTicks',   
+                            sum(uptime_server.TICKS) as 'serverTicks'
                      FROM uptime_client 
-                     LEFT JOIN uptime_server ON 
+                     LEFT JOIN uptime_server ON                      
                      (uptime_client.YEAR = uptime_server.YEAR) AND
-                     (uptime_client.MONTH = uptime_server.MONTH)`;
+                     (uptime_client.MONTH = uptime_server.MONTH)
+                     GROUP BY uptime_client.NODE`;
     var paramList = [];
 
     if (params.id) {
@@ -100,7 +99,7 @@ function database() {
     }
 
     if (paramList.length > 0) {
-      selectSQL = selectSQL + " WHERE " + paramList.join(" AND ");
+      selectSQL = selectSQL + " HAVING " + paramList.join(" AND ");
     }
 
     db.all(selectSQL, [], function (err, rows) {
