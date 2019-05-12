@@ -39,8 +39,8 @@ To call **/pool/uptime** endpoint you can do either an get or post request. If y
 }
 ```
 
-**id**: an array of ids you want to query. If not specified all ids are taken
-**month**: an array months you want to query for. If not specified all months are taken
-**year**: an array of years you want to querty for. If not specified all years are taken
+* **id**: an array of ids you want to query. If not specified all ids are taken
+* **month**: an array months you want to query for. If not specified all months are taken
+* **year**: an array of years you want to querty for. If not specified all years are taken
 
 The API sums the ticks for each client over the given period selected by parameters. The same is done for the pool ticks. The uptime is client ticks divided by pool ticks.
