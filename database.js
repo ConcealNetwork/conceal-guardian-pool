@@ -85,8 +85,8 @@ function database() {
                      FROM uptime_client 
                      LEFT JOIN uptime_server ON                      
                      (uptime_client.YEAR = uptime_server.YEAR) AND
-                     (uptime_client.MONTH = uptime_server.MONTH)
-                     GROUP BY uptime_client.NODE`;
+                     (uptime_client.MONTH = uptime_server.MONTH)`;
+
     var paramList = [];
 
     if (params.id) {
@@ -102,8 +102,11 @@ function database() {
     }
 
     if (paramList.length > 0) {
-      selectSQL = selectSQL + " HAVING " + paramList.join(" AND ");
+      selectSQL = selectSQL + " WHERE " + paramList.join(" AND ");
     }
+
+    // alsways add the group by at the end
+    selectSQL = selectSQL + " GROUP BY uptime_client.NODE";
 
     db.all(selectSQL, [], function (err, rows) {
       if (err) {
