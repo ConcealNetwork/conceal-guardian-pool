@@ -102,7 +102,11 @@ function getAllNodes(keys) {
   var nodeList = [];
 
   keys.forEach(function (value) {
-    nodeList.push(nodeCache.get(value));
+    var nodeData = nodeCache.get(value);
+
+    if (nodeData) {
+      nodeList.push(nodeCache.get(value));
+    }
   });
 
   return nodeList;
@@ -144,11 +148,15 @@ function checkNodesUptimeStatus() {
   nodeCache.keys(function (err, keys) {
     if (!err) {
       for (var key of keys) {
+        var currTime = new Date();
         var nodeData = nodeCache.get(key);
-        var lastSeen = moment(nodeData.status.lastSeen);
 
-        if (moment.duration(moment(new Date()).diff(lastSeen)).asMinutes() < config.uptime.period) {
-          storage.increaseClientTick(key);
+        if (nodeData) {
+          var lastSeen = moment(nodeData.status.lastSeen);
+
+          if (moment.duration(moment(currTime).diff(lastSeen)).asMinutes() < config.uptime.period) {
+            storage.increaseClientTick(key);
+          }
         }
       }
     }

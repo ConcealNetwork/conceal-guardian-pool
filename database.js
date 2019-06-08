@@ -90,7 +90,6 @@ function database() {
     var paramList = [];
 
     if (params.id) {
-
       paramList.push(vsprintf('(uptime_client.NODE IN %s)', [arrayToSQL(params.id)]));
     }
 
