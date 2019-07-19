@@ -27,6 +27,13 @@ Currently there are 3 API endpoints described bellow
 /pool/list?isReachable=true
 ```
 
+**isSynced**:  Only looks at those nodes that are fully synced. If not specified every nodes passes the test.
+
+```
+/pool/random?isSynced=true
+/pool/list?isSynced=true
+```
+
 # Supported Parameters for uptime endpoint
 
 To call **/pool/uptime** endpoint you can do either an get or post request. If you want to specify the input parameters you need to do the post request where the payload is JSON. Example of input payload:
