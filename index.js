@@ -113,7 +113,12 @@ function getAllNodes(keys) {
 }
 
 function filterResults(req, values) {
-  return values.filter((value, index, array) => {
+  var correctHeightList = {};
+  var correctHeightCnt = 0;
+  var filteredValues = [];
+  var correctHeight = 0;
+
+  filteredValues = values.filter((value, index, array) => {
     var isAppropriate = true;
 
     if (req.query.hasFeeAddr) {
@@ -126,8 +131,28 @@ function filterResults(req, values) {
       isAppropriate = isAppropriate && (((req.query.isReachable === "true") && isReachable) || ((req.query.isReachable === "false") && !isReachable));
     }
 
+    var nodeHeight = value.blockchain ? value.blockchain.height : 0;
+    correctHeightList[nodeHeight] = (correctHeightList[nodeHeight] || 0) + 1;
+
     return isAppropriate;
   });
+
+  // find the correct height
+  for (var propertyName in correctHeightList) {
+    if (correctHeightList[propertyName] > correctHeightCnt) {
+      correctHeightCnt = correctHeightList[propertyName];
+      correctHeight = propertyName;
+    }
+  }
+
+  if (req.query.isSynced) {
+    filteredValues = filteredValues.filter((value, index, array) => {
+      var nodeHeight = value.blockchain ? value.blockchain.height : 0;
+      return nodeHeight >= correctHeight - 2;
+    });
+  }
+
+  return filteredValues;
 }
 
 function setNodeData(data, isReachable, callback) {
