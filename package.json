@@ -14,18 +14,18 @@
   "license": "MIT",
   "dependencies": {
     "app-root-path": "^2.2.1",
-    "body-parser": "^1.18.3",
+    "body-parser": "^1.19.0",
     "conceal-api": "^0.7.5",
-    "config": "^3.0.1",
+    "config": "^3.2.1",
     "cors": "^2.8.5",
-    "express": "^4.16.4",
-    "express-rate-limit": "^3.4.0",
+    "express": "^4.17.1",
+    "express-rate-limit": "^3.5.3",
     "knex": "^0.16.5",
     "moment": "^2.24.0",
     "node-cache": "^4.2.0",
     "shelljs": "^0.8.3",
     "sprintf-js": "^1.1.2",
-    "sqlite3": "^4.0.7",
+    "sqlite3": "^4.0.9",
     "winston": "^3.2.1"
   },
   "jshintConfig": {
