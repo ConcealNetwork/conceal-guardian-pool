@@ -8,9 +8,10 @@ Currently there are 3 API endpoints described bellow
 * /pool/update -> This is the endpoint to which each node guardian is sending the node data in intervals
 * /pool/random -> Selects a random node from a list of all nodes. Additional parametes may narrow the list.
 * /pool/list -> Lists all the nodes currently in the pool. Additional parametes may narrow the list.
+* /pool/count -> Counts all the nodes currently in the pool. Additional parametes may narrow the list.
 * /pool/uptime -> Get a list uf node uptimes for the given input parameters
 
-# Supported Parameters for random and list endpoints
+# Supported Parameters for random, count and list endpoints
 
 **hasFeeAddr**: Only looks at those nodes that have a fee address specified. If not specified every nodes passes the test.
 
