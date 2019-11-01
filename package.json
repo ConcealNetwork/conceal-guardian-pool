@@ -20,7 +20,7 @@
     "cors": "^2.8.5",
     "express": "^4.17.1",
     "express-rate-limit": "^3.5.3",
-    "knex": "^0.16.5",
+    "knex": "^0.19.5",
     "moment": "^2.24.0",
     "node-cache": "^4.2.1",
     "shelljs": "^0.8.3",
