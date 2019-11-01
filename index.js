@@ -202,6 +202,17 @@ app.get("/pool/list", listNodesLimiter, (req, res) => {
   });
 });
 
+// count all active nodes by specified filters
+app.get("/pool/count", listNodesLimiter, (req, res) => {
+  nodeCache.keys(function (err, keys) {
+    if (!err) {
+      res.json({ success: true, count: filterResults(req, getAllNodes(keys)).length });
+    } else {
+      res.json({ success: false, count: 0 });
+    }
+  });
+});
+
 // get the random node back to user
 app.get("/pool/random", listNodesLimiter, (req, res, next) => {
   nodeCache.keys(function (err, keys) {
