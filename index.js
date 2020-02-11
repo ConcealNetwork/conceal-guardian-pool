@@ -118,6 +118,9 @@ function filterResults(req, values) {
   var filteredValues = [];
   var correctHeight = 0;
 
+  // set the isSyncedOnly flag (true by default)
+  var isSyncedOnly = req.query.isSynced || true;
+
   filteredValues = values.filter((value, index, array) => {
     var isAppropriate = true;
 
