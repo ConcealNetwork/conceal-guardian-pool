@@ -148,7 +148,7 @@ function filterResults(req, values) {
     }
   }
 
-  if (req.query.isSynced) {
+  if (isSyncedOnly) {
     filteredValues = filteredValues.filter((value, index, array) => {
       var nodeHeight = value.blockchain ? value.blockchain.height : 0;
       return nodeHeight >= correctHeight - 2;
