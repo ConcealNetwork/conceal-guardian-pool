@@ -117,9 +117,11 @@ function filterResults(req, values) {
   var correctHeightCnt = 0;
   var filteredValues = [];
   var correctHeight = 0;
+  var isSyncedOnly = true
 
-  // set the isSyncedOnly flag (true by default)
-  var isSyncedOnly = req.query.isSynced || true;
+  if (req.query.isSynced) {
+    isSyncedOnly = req.query.isSynced.toUpperCase() == "TRUE";
+  }
 
   filteredValues = values.filter((value, index, array) => {
     var isAppropriate = true;
