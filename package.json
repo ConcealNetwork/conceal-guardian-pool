@@ -22,7 +22,7 @@
     "express-rate-limit": "^3.5.3",
     "moment": "^2.24.0",
     "node-cache": "^4.2.1",
-    "shelljs": "^0.8.3",
+    "shelljs": "^0.8.5",
     "sprintf-js": "^1.1.2",
     "sqlite3": "^4.1.0",
     "winston": "^3.2.1"
