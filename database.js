@@ -20,10 +20,14 @@ function database() {
     }
   });
 
+  function replaceAll(str, find, replace) {
+    return str.replace(new RegExp(find, 'g'), replace);
+  }  
+
   function arrayToSQL(parameter) {
     var idArrayAsStr = JSON.stringify(parameter);
-    idArrayAsStr = idArrayAsStr.replace("[", "(");
-    return idArrayAsStr.replace("]", ")");
+    idArrayAsStr = replaceAll(idArrayAsStr, "[", "(");
+    return replaceAll(idArrayAsStr, "]", ")");
   }
 
   this.increaseClientTick = function (nodeId) {
