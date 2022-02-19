@@ -57,8 +57,9 @@ const updateNodeLimier = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
   max: 30, // limit each IP to 15 requests per windowMs
   message: "Too many requests created from this IP, please try again later",
-  onLimitReached: function (req, res, options) {
+  handler : function (req, res, next, options) {
     logger.error(vsprintf('Denied update node request because of to many requests in short period from IP %s', [req.ip]));
+    res.status(options.statusCode).send(options.message);
   }
 });
 
@@ -67,8 +68,9 @@ const listNodesLimiter = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
   max: 300, // limit each IP to 15 requests per windowMs
   message: "Too many requests created from this IP, please try again later",
-  onLimitReached: function (req, res, options) {
+  handler : function (req, res, next, options) {
     logger.error(vsprintf('Denied list nodes request because of to many requests in short period from IP %s', [req.ip]));
+    res.status(options.statusCode).send(options.message);
   }
 });
 
@@ -239,7 +241,7 @@ app.get("/pool/random", listNodesLimiter, (req, res, next) => {
 // post request for updating the node data
 app.post("/pool/update", updateNodeLimier, (req, res, next) => {
   if ((req.body) && (req.body.id) && (req.body.nodeHost) && (req.body.nodePort)) {
-    var CCXApi = new CCX(vsprintf("http://%s", [req.body.url ? req.body.url.host : req.body.nodeHost]), "3333", req.body.url ? req.body.url.port : req.body.nodePort, apiTimeout);
+    let CCXApi = new CCX(vsprintf("http://%s", [req.body.url ? req.body.url.host : req.body.nodeHost]), "3333", req.body.url ? req.body.url.port : req.body.nodePort, apiTimeout);
 
     CCXApi.info().then(data => {
       setNodeData(req.body, true, function (result) {
