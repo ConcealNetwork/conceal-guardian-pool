@@ -1,7 +1,6 @@
 const rateLimit = require("express-rate-limit");
 const bodyParser = require("body-parser");
 const NodeCache = require("node-cache");
-const vsprintf = require("sprintf-js").vsprintf;
 const database = require("./database.js");
 const express = require("express");
 const winston = require('winston');
@@ -58,7 +57,7 @@ const updateNodeLimier = rateLimit({
   max: 30, // limit each IP to 15 requests per windowMs
   message: "Too many requests created from this IP, please try again later",
   handler : function (req, res, next, options) {
-    logger.error(vsprintf('Denied update node request because of to many requests in short period from IP %s', [req.ip]));
+    logger.error(`Denied update node request because of to many requests in short period from IP ${req.ip}`);
     res.status(options.statusCode).send(options.message);
   }
 });
@@ -69,7 +68,7 @@ const listNodesLimiter = rateLimit({
   max: 300, // limit each IP to 15 requests per windowMs
   message: "Too many requests created from this IP, please try again later",
   handler : function (req, res, next, options) {
-    logger.error(vsprintf('Denied list nodes request because of to many requests in short period from IP %s', [req.ip]));
+    logger.error(`Denied list nodes request because of to many requests in short period from IP ${req.ip}`);
     res.status(options.statusCode).send(options.message);
   }
 });
@@ -77,6 +76,9 @@ const listNodesLimiter = rateLimit({
 var nodeCache = new NodeCache({ stdTTL: config.cache.expire, checkperiod: config.cache.checkPeriod }); // the cache object
 var storage = new database(); // create a new storage instance
 var app = express(); // create express app
+
+// cache for last uptime check
+var updateCache = {};
 
 // attach other libraries to the express application
 app.enable("trust proxy", '127.0.0.1');
@@ -97,14 +99,14 @@ app.use(function (err, req, res, next) {
 
 // start listener
 app.listen(config.server.port, () => {
-  console.log(vsprintf("Server running on port %d", [config.server.port]));
+  console.log(`Server running on port ${config.server.port}`);
 });
 
 function getAllNodes(keys) {
-  var nodeList = [];
+  let nodeList = [];
 
   keys.forEach(function (value) {
-    var nodeData = nodeCache.get(value);
+    let nodeData = nodeCache.get(value);
 
     if (nodeData) {
       nodeList.push(nodeCache.get(value));
@@ -162,37 +164,69 @@ function filterResults(req, values) {
   return filteredValues;
 }
 
-function setNodeData(data, isReachable, callback) {
+function setNodeData(data, callback) {
   storage.getClientUptime({ id: [data.id], year: [moment().year()], month: [moment().month() + 1] }, function (resultData) {
-    data.status.isReachable = isReachable;
     data.status.lastSeen = moment().toISOString();
+    let nodeData = nodeCache.get(data.id);
+    let doCheckReachable = false;
 
     if (resultData && resultData.uptimes && (resultData.uptimes.length == 1)) {
       data.status.uptime = Math.round((resultData.uptimes[0].clientTicks / resultData.uptimes[0].serverTicks) * 100);
     }
 
-    callback(nodeCache.set(data.id, data, config.cache.expire));
+    // do we need to check it
+    if (!updateCache[data.id] || !nodeData) {
+      doCheckReachable = true;
+    } else {
+      doCheckReachable = moment.duration(moment(new Date()).diff(moment(updateCache[data.id]))).asMinutes() > 60;
+    }
+
+    if (doCheckReachable) {
+      let CCXApiSSL = new CCX(`https://${req.body.url ? req.body.url.host : req.body.nodeHost}`, "3333", req.body.url ? req.body.url.port : req.body.nodePort, apiTimeout);
+      updateCache[data.id] = moment().toISOString();
+
+      // check SSL connection first
+      CCXApiSSL.info().then(data => {
+        data.status.hasSSL = true;
+        data.status.isReachable = true;
+        callback(nodeCache.set(data.id, data, config.cache.expire));          
+      }).catch(err => {
+        let CCXApi = new CCX(`http://${req.body.url ? req.body.url.host : req.body.nodeHost}`, "3333", req.body.url ? req.body.url.port : req.body.nodePort, apiTimeout);
+
+        // check unsecure connection
+        CCXApi.info().then(data => {
+          data.status.hasSSL = false;  
+          data.status.isReachable = true;
+          callback(nodeCache.set(data.id, data, config.cache.expire));          
+        }).catch(err => {
+          data.status.hasSSL = false;  
+          data.status.isReachable = false;
+          callback(nodeCache.set(data.id, data, config.cache.expire));          
+        });
+      });
+    } else {
+      data.status.hasSSL = nodeData.status.hasSSL;
+      data.status.isReachable = nodeData.status.isReachable;      
+      callback(nodeCache.set(data.id, data, config.cache.expire));
+    }
   });
 }
 
 // update uptime for nodes
 function checkNodesUptimeStatus() {
-  nodeCache.keys(function (err, keys) {
-    if (!err) {
-      for (var key of keys) {
-        var currTime = new Date();
-        var nodeData = nodeCache.get(key);
+  let keys = nodeCache.keys();
 
-        if (nodeData) {
-          var lastSeen = moment(nodeData.status.lastSeen);
+  for (let key of keys) {
+    var nodeData = nodeCache.get(key);
 
-          if (moment.duration(moment(currTime).diff(lastSeen)).asMinutes() < config.uptime.period) {
-            storage.increaseClientTick(key);
-          }
-        }
+    if (nodeData) {
+      var lastSeen = moment(nodeData.status.lastSeen);
+
+      if (moment.duration(moment(new Date()).diff(lastSeen)).asMinutes() < config.uptime.period) {
+        storage.increaseClientTick(key);
       }
     }
-  });
+  }
 
   // increase the server tick count
   storage.increaseServerTick();
@@ -200,57 +234,31 @@ function checkNodesUptimeStatus() {
 
 // get request for the list of all active nodes
 app.get("/pool/list", listNodesLimiter, (req, res) => {
-  nodeCache.keys(function (err, keys) {
-    if (!err) {
-      res.json({ success: true, list: filterResults(req, getAllNodes(keys)) });
-    } else {
-      res.json({ success: false, list: [] });
-    }
-  });
+  res.json({ success: true, list: filterResults(req, getAllNodes(nodeCache.keys())) });
 });
 
 // count all active nodes by specified filters
 app.get("/pool/count", listNodesLimiter, (req, res) => {
-  nodeCache.keys(function (err, keys) {
-    if (!err) {
-      res.json({ success: true, count: filterResults(req, getAllNodes(keys)).length });
-    } else {
-      res.json({ success: false, count: 0 });
-    }
-  });
+  res.json({ success: true, count: filterResults(req, getAllNodes(nodeCache.keys())).length });
 });
 
 // get the random node back to user
 app.get("/pool/random", listNodesLimiter, (req, res, next) => {
-  nodeCache.keys(function (err, keys) {
-    if (!err) {
-      var nodeList = filterResults(req, getAllNodes(keys));
-      var randomNode = nodeList[Math.floor(Math.random() * nodeList.length)];
+  var nodeList = filterResults(req, getAllNodes(nodeCache.keys()));
+  var randomNode = nodeList[Math.floor(Math.random() * nodeList.length)];
 
-      if (randomNode) {
-        res.json({ success: true, url: vsprintf("%s:%d", [(randomNode.url && randomNode.url.host) ? randomNode.url.host : randomNode.nodeHost, (randomNode.url && randomNode.url.port) ? randomNode.url.port : randomNode.nodePort || 16000]) });
-      } else {
-        res.json({ success: false });
-      }
-    } else {
-      res.json({ success: false });
-    }
-  });
+  if (randomNode) {
+    res.json({ success: true, url: vsprintf("%s:%d", [(randomNode.url && randomNode.url.host) ? randomNode.url.host : randomNode.nodeHost, (randomNode.url && randomNode.url.port) ? randomNode.url.port : randomNode.nodePort || 16000]) });
+  } else {
+    res.json({ success: false });
+  }
 });
 
 // post request for updating the node data
 app.post("/pool/update", updateNodeLimier, (req, res, next) => {
   if ((req.body) && (req.body.id) && (req.body.nodeHost) && (req.body.nodePort)) {
-    let CCXApi = new CCX(vsprintf("http://%s", [req.body.url ? req.body.url.host : req.body.nodeHost]), "3333", req.body.url ? req.body.url.port : req.body.nodePort, apiTimeout);
-
-    CCXApi.info().then(data => {
-      setNodeData(req.body, true, function (result) {
-        res.json({ success: result });
-      });
-    }).catch(err => {
-      setNodeData(req.body, false, function (result) {
-        res.json({ success: result });
-      });
+    setNodeData(req.body, function (result) {
+      res.json({ success: result });
     });
   }
 });
