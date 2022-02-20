@@ -140,6 +140,11 @@ function filterResults(req, values) {
       isAppropriate = isAppropriate && (((req.query.isReachable === "true") && isReachable) || ((req.query.isReachable === "false") && !isReachable));
     }
 
+    if (req.query.hasSSL) {
+      var hasSSL = value.status && value.status.hasSSL;
+      isAppropriate = isAppropriate && (((req.query.hasSSL === "true") && hasSSL) || ((req.query.hasSSL === "false") && !hasSSL));
+    }
+
     var nodeHeight = value.blockchain ? value.blockchain.height : 0;
     correctHeightList[nodeHeight] = (correctHeightList[nodeHeight] || 0) + 1;
 
