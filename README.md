@@ -28,6 +28,13 @@ Currently there are 3 API endpoints described bellow
 /pool/list?isReachable=true
 ```
 
+**hasSSL**:  Only looks at those nodes that are reachable over the SSL protocol. If not specified every nodes passes the test.
+
+```
+/pool/random?hasSSL=true
+/pool/list?hasSSL=true
+```
+
 **isSynced**:  Only looks at those nodes that are fully synced. If not specified every nodes passes the test.
 
 ```
