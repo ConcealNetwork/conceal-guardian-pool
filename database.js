@@ -24,9 +24,9 @@ function database() {
   }  
 
   function arrayToSQL(parameter) {
-    var idArrayAsStr = JSON.stringify(parameter);
-    idArrayAsStr = replaceAll(idArrayAsStr, "[", "(");
-    return replaceAll(idArrayAsStr, "]", ")");
+    var idArrayAsStr = JSON.stringify(parameter);    
+    idArrayAsStr = idArrayAsStr.replace(/\[/g, "(");
+    return idArrayAsStr.replace(/\]/g, ")");
   }
 
   this.increaseClientTick = function (nodeId) {

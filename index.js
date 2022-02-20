@@ -185,8 +185,8 @@ function setNodeData(data, callback) {
       updateCache[data.id] = moment().toISOString();
 
       let CCXApiSSL = new CCX({
-        daemonHost: `https://${req.body.url ? req.body.url.host : req.body.nodeHost}`, 
-        daemonRpcPort: req.body.url ? req.body.url.port : req.body.nodePort,
+        daemonHost: `https://${data.url ? data.url.host : data.nodeHost}`, 
+        daemonRpcPort: data.url ? data.url.port : data.nodePort,
         timeout: apiTimeout
       });
 
@@ -197,8 +197,8 @@ function setNodeData(data, callback) {
         callback(nodeCache.set(data.id, data, config.cache.expire));          
       }).catch(err => {
         let CCXApi = new CCX({
-          daemonHost: `http://${req.body.url ? req.body.url.host : req.body.nodeHost}`, 
-          daemonRpcPort:req.body.url ? req.body.url.port : req.body.nodePort,
+          daemonHost: `http://${data.url ?data.url.host : data.nodeHost}`, 
+          daemonRpcPort: data.url ? data.url.port : data.nodePort,
           timeout: apiTimeout
         });
 
@@ -269,6 +269,8 @@ app.post("/pool/update", updateNodeLimier, (req, res, next) => {
     setNodeData(req.body, function (result) {
       res.json({ success: result });
     });
+  } else {
+    res.json({ success: false }); 
   }
 });
 
