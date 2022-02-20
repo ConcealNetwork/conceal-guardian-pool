@@ -1,4 +1,3 @@
-const vsprintf = require("sprintf-js").vsprintf;
 const sqlite3 = require('sqlite3');
 const appRoot = require('app-root-path');
 const moment = require('moment');
@@ -94,15 +93,15 @@ function database() {
     var paramList = [];
 
     if (params.id) {
-      paramList.push(vsprintf('(uptime_client.NODE IN %s)', [arrayToSQL(params.id)]));
+      paramList.push(`(uptime_client.NODE IN ${arrayToSQL(params.id)})`);
     }
 
     if (params.year) {
-      paramList.push(vsprintf('(uptime_client.YEAR in %s)', [arrayToSQL(params.year)]));
+      paramList.push(`(uptime_client.YEAR in ${arrayToSQL(params.year)})`);
     }
 
     if (params.month) {
-      paramList.push(vsprintf('(uptime_client.MONTH in %s)', [arrayToSQL(params.month)]));
+      paramList.push(`(uptime_client.MONTH in ${arrayToSQL(params.month)})`);
     }
 
     if (paramList.length > 0) {
