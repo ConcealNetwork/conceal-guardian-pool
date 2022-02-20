@@ -182,8 +182,13 @@ function setNodeData(data, callback) {
     }
 
     if (doCheckReachable) {
-      let CCXApiSSL = new CCX(`https://${req.body.url ? req.body.url.host : req.body.nodeHost}`, "3333", req.body.url ? req.body.url.port : req.body.nodePort, apiTimeout);
       updateCache[data.id] = moment().toISOString();
+
+      let CCXApiSSL = new CCX({
+        daemonHost: `https://${req.body.url ? req.body.url.host : req.body.nodeHost}`, 
+        daemonRpcPort: req.body.url ? req.body.url.port : req.body.nodePort,
+        timeout: apiTimeout
+      });
 
       // check SSL connection first
       CCXApiSSL.info().then(data => {
@@ -191,7 +196,11 @@ function setNodeData(data, callback) {
         data.status.isReachable = true;
         callback(nodeCache.set(data.id, data, config.cache.expire));          
       }).catch(err => {
-        let CCXApi = new CCX(`http://${req.body.url ? req.body.url.host : req.body.nodeHost}`, "3333", req.body.url ? req.body.url.port : req.body.nodePort, apiTimeout);
+        let CCXApi = new CCX({
+          daemonHost: `http://${req.body.url ? req.body.url.host : req.body.nodeHost}`, 
+          daemonRpcPort:req.body.url ? req.body.url.port : req.body.nodePort,
+          timeout: apiTimeout
+        });
 
         // check unsecure connection
         CCXApi.info().then(data => {
