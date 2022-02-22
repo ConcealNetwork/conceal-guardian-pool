@@ -183,7 +183,7 @@ function setNodeData(data, callback) {
     if (!updateCache[data.id] || !nodeData) {
       doCheckReachable = true;
     } else {
-      doCheckReachable = moment.duration(moment(new Date()).diff(moment(updateCache[data.id]))).asMinutes() > 60;
+      doCheckReachable = moment.duration(moment(new Date()).diff(moment(updateCache[data.id]))).asMinutes() > 15;
     }
 
     if (doCheckReachable) {
@@ -196,19 +196,19 @@ function setNodeData(data, callback) {
       });
 
       // check SSL connection first
-      CCXApiSSL.info().then(data => {
+      CCXApiSSL.info().then(info => {
         data.status.hasSSL = true;
         data.status.isReachable = true;
         callback(nodeCache.set(data.id, data, config.cache.expire));          
       }).catch(err => {
         let CCXApi = new CCX({
-          daemonHost: `http://${data.url ?data.url.host : data.nodeHost}`, 
+          daemonHost: `http://${data.url ? data.url.host : data.nodeHost}`, 
           daemonRpcPort: data.url ? data.url.port : data.nodePort,
           timeout: apiTimeout
         });
 
         // check unsecure connection
-        CCXApi.info().then(data => {
+        CCXApi.info().then(info => {
           data.status.hasSSL = false;  
           data.status.isReachable = true;
           callback(nodeCache.set(data.id, data, config.cache.expire));          
