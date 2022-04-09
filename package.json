@@ -21,7 +21,7 @@
     "express": "^4.17.3",
     "express-rate-limit": "^6.3.0",
     "follow-redirects": "^1.14.9",
-    "moment": "^2.29.1",
+    "moment": "^2.29.2",
     "node-cache": "^5.1.2",
     "shelljs": "^0.8.5",
     "sqlite3": "^4.2.0",
