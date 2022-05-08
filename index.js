@@ -262,7 +262,13 @@ app.get("/pool/random", listNodesLimiter, (req, res, next) => {
   var randomNode = nodeList[Math.floor(Math.random() * nodeList.length)];
 
   if (randomNode) {
-    res.json({ success: true, url: vsprintf("%s:%d", [(randomNode.url && randomNode.url.host) ? randomNode.url.host : randomNode.nodeHost, (randomNode.url && randomNode.url.port) ? randomNode.url.port : randomNode.nodePort || 16000]) });
+    let host = (randomNode.url && randomNode.url.host) ? randomNode.url.host : randomNode.nodeHost;
+    let port = (randomNode.url && randomNode.url.port) ? randomNode.url.port : randomNode.nodePort || 16000;
+
+    res.json({ 
+      success: true, 
+      url: `${host}:${port}` 
+    });
   } else {
     res.json({ success: false });
   }
