@@ -24,7 +24,7 @@
     "moment": "^2.29.1",
     "node-cache": "^5.1.2",
     "shelljs": "^0.8.5",
-    "sqlite3": "^4.2.0",
+    "sqlite3": "^5.1.6",
     "winston": "^3.6.0"
   },
   "jshintConfig": {
