@@ -81,9 +81,19 @@ var app = express(); // create express app
 var updateCache = {};
 
 // attach other libraries to the express application
-app.enable("trust proxy", '127.0.0.1');
+app.set("trust proxy", 1); // trust first proxy
 app.use(bodyParser.json());
-app.use(cors());
+app.use(cors({
+  origin: [
+    'http://explorer.conceal.network',
+    'https://explorer.conceal.network',
+    'http://newexplorer.conceal.network',
+    'https://newexplorer.conceal.network'
+  ],
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
 
 // handle any application errors
 app.use(function (err, req, res, next) {
