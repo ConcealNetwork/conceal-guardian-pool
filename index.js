@@ -88,7 +88,9 @@ app.use(cors({
     'http://explorer.conceal.network',
     'https://explorer.conceal.network',
     'http://newexplorer.conceal.network',
-    'https://newexplorer.conceal.network'
+    'https://newexplorer.conceal.network',
+    'https://wws.conceal.network',
+    'https://wallet.conceal.network'
   ],
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
