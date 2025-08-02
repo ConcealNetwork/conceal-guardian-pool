@@ -24,6 +24,18 @@ function database() {
   }  
 
   this.increaseClientTick = function (nodeId) {
+    // Validate nodeId to prevent SQL injection
+    if (!nodeId || typeof nodeId !== 'string' || nodeId.length > 100) {
+      console.log("Invalid nodeId provided to increaseClientTick:", nodeId);
+      return;
+    }
+    
+    // Sanitize nodeId - only allow alphanumeric, hyphens, and underscores
+    if (!/^[a-zA-Z0-9\-_]+$/.test(nodeId)) {
+      console.log("Invalid nodeId format:", nodeId);
+      return;
+    }
+
     var selectSQL = "SELECT * FROM uptime_client WHERE (NODE = ?) AND (YEAR = ?) AND (MONTH = ?)";
     var insertSQL = "INSERT INTO uptime_client(NODE, YEAR, MONTH, TICKS) VALUES(?, ?, ?, 0)";
     var updateSQL = "UPDATE uptime_client SET TICKS = TICKS + 1 WHERE (NODE = ?) AND (YEAR = ?) AND (MONTH = ?)";
@@ -76,41 +88,35 @@ function database() {
   };
 
   this.getClientUptime = function (params, callback) {
+    // Use a completely static query structure to prevent SQL injection
     var selectSQL = `SELECT uptime_client.NODE as 'id', 
                             sum(uptime_client.TICKS) as 'clientTicks',   
                             sum(uptime_server.TICKS) as 'serverTicks'
                      FROM uptime_client 
                      LEFT JOIN uptime_server ON                      
                      (uptime_client.YEAR = uptime_server.YEAR) AND
-                     (uptime_client.MONTH = uptime_server.MONTH)`;
+                     (uptime_client.MONTH = uptime_server.MONTH)
+                     WHERE uptime_client.NODE = ? AND uptime_client.YEAR = ? AND uptime_client.MONTH = ?
+                     GROUP BY uptime_client.NODE`;
 
-    var whereConditions = [];
-    var queryParams = [];
+    // Extract and validate parameters with safe defaults
+    var nodeId = null;
+    var year = moment().year();
+    var month = moment().month() + 1;
 
     if (params.id && Array.isArray(params.id) && params.id.length > 0) {
-      var placeholders = params.id.map(() => '?').join(',');
-      whereConditions.push(`(uptime_client.NODE IN (${placeholders}))`);
-      queryParams.push(...params.id);
+      nodeId = params.id[0];
     }
 
     if (params.year && Array.isArray(params.year) && params.year.length > 0) {
-      var placeholders = params.year.map(() => '?').join(',');
-      whereConditions.push(`(uptime_client.YEAR in (${placeholders}))`);
-      queryParams.push(...params.year);
+      year = params.year[0];
     }
 
     if (params.month && Array.isArray(params.month) && params.month.length > 0) {
-      var placeholders = params.month.map(() => '?').join(',');
-      whereConditions.push(`(uptime_client.MONTH in (${placeholders}))`);
-      queryParams.push(...params.month);
+      month = params.month[0];
     }
 
-    if (whereConditions.length > 0) {
-      selectSQL = selectSQL + " WHERE " + whereConditions.join(" AND ");
-    }
-
-    // always add the group by at the end
-    selectSQL = selectSQL + " GROUP BY uptime_client.NODE";
+    var queryParams = [nodeId, year, month];
 
     db.all(selectSQL, queryParams, function (err, rows) {
       if (err) {
