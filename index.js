@@ -196,7 +196,11 @@ function setNodeData(data, callback) {
     let doCheckReachable = false;
 
     if (resultData && resultData.uptimes && (resultData.uptimes.length == 1)) {
-      data.status.uptime = Math.round((resultData.uptimes[0].clientTicks / resultData.uptimes[0].serverTicks) * 100);
+      const clientTicks = resultData.uptimes[0].clientTicks || 0;
+      const serverTicks = resultData.uptimes[0].serverTicks || 1; // Prevent division by zero
+      data.status.uptime = Math.round((clientTicks / serverTicks) * 100);
+    } else {
+      data.status.uptime = 0; // Default to 0 if no uptime data
     }
 
     // do we need to check it

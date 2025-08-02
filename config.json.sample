@@ -5,5 +5,8 @@
 	"cache": {
 		"expire": 600,
 		"checkPeriod": 120
+	},
+	"uptime": {
+		"period": 60
 	}
 }
