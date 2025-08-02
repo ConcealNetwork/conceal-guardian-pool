@@ -23,12 +23,6 @@ function database() {
     return str.replace(new RegExp(find, 'g'), replace);
   }  
 
-  function arrayToSQL(parameter) {
-    var idArrayAsStr = JSON.stringify(parameter);    
-    idArrayAsStr = idArrayAsStr.replace(/\[/g, "(");
-    return idArrayAsStr.replace(/\]/g, ")");
-  }
-
   this.increaseClientTick = function (nodeId) {
     var selectSQL = "SELECT * FROM uptime_client WHERE (NODE = ?) AND (YEAR = ?) AND (MONTH = ?)";
     var insertSQL = "INSERT INTO uptime_client(NODE, YEAR, MONTH, TICKS) VALUES(?, ?, ?, 0)";
@@ -90,28 +84,35 @@ function database() {
                      (uptime_client.YEAR = uptime_server.YEAR) AND
                      (uptime_client.MONTH = uptime_server.MONTH)`;
 
-    var paramList = [];
+    var whereConditions = [];
+    var queryParams = [];
 
-    if (params.id) {
-      paramList.push(`(uptime_client.NODE IN ${arrayToSQL(params.id)})`);
+    if (params.id && Array.isArray(params.id) && params.id.length > 0) {
+      var placeholders = params.id.map(() => '?').join(',');
+      whereConditions.push(`(uptime_client.NODE IN (${placeholders}))`);
+      queryParams.push(...params.id);
     }
 
-    if (params.year) {
-      paramList.push(`(uptime_client.YEAR in ${arrayToSQL(params.year)})`);
+    if (params.year && Array.isArray(params.year) && params.year.length > 0) {
+      var placeholders = params.year.map(() => '?').join(',');
+      whereConditions.push(`(uptime_client.YEAR in (${placeholders}))`);
+      queryParams.push(...params.year);
     }
 
-    if (params.month) {
-      paramList.push(`(uptime_client.MONTH in ${arrayToSQL(params.month)})`);
+    if (params.month && Array.isArray(params.month) && params.month.length > 0) {
+      var placeholders = params.month.map(() => '?').join(',');
+      whereConditions.push(`(uptime_client.MONTH in (${placeholders}))`);
+      queryParams.push(...params.month);
     }
 
-    if (paramList.length > 0) {
-      selectSQL = selectSQL + " WHERE " + paramList.join(" AND ");
+    if (whereConditions.length > 0) {
+      selectSQL = selectSQL + " WHERE " + whereConditions.join(" AND ");
     }
 
-    // alsways add the group by at the end
+    // always add the group by at the end
     selectSQL = selectSQL + " GROUP BY uptime_client.NODE";
 
-    db.all(selectSQL, [], function (err, rows) {
+    db.all(selectSQL, queryParams, function (err, rows) {
       if (err) {
         console.log("Error getting the uptime data", err);
         callback({});
