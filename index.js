@@ -1,5 +1,4 @@
 const rateLimit = require("express-rate-limit");
-const bodyParser = require("body-parser");
 const NodeCache = require("node-cache");
 const database = require("./database.js");
 const express = require("express");
@@ -82,7 +81,7 @@ var updateCache = {};
 
 // attach other libraries to the express application
 app.set("trust proxy", 1); // trust first proxy
-app.use(bodyParser.json());
+app.use(express.json()); // Express v5 built-in body parser
 app.use(cors({
   origin: [
     'http://explorer.conceal.network',
@@ -93,6 +92,15 @@ app.use(cors({
     'https://wallet.conceal.network'
   ],
   methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+app.use(cors({
+  origin: [
+    'http://localhost',
+    'https://localhost'
+  ],
+  methods: ['GET'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
