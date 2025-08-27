@@ -289,6 +289,11 @@ app.get("/pool/random", listNodesLimiter, (req, res, next) => {
     let host = (randomNode.url && randomNode.url.host) ? randomNode.url.host : randomNode.nodeHost;
     let port = (randomNode.url && randomNode.url.port) ? randomNode.url.port : randomNode.nodePort || 16000;
 
+    // Extract host by retaining components before first "/"
+    if (host && host.includes('/')) {
+      host = host.split('/')[0];
+    }
+
     res.json({ 
       success: true, 
       url: `${host}:${port}` 
