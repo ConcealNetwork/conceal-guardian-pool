@@ -97,9 +97,9 @@ app.use(cors({
 }));
 app.use(cors({
   origin: '*',
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
+  methods: ['GET'],
+  allowedHeaders: ['Content-Type'],
+  credentials: false
 }));
 
 // handle any application errors
