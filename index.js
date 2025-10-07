@@ -96,11 +96,8 @@ app.use(cors({
   credentials: true
 }));
 app.use(cors({
-  origin: [
-    'http://localhost',
-    'https://localhost'
-  ],
-  methods: ['GET'],
+  origin: '*',
+  methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
