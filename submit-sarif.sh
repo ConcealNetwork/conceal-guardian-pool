@@ -1,6 +1,12 @@
 #!/bin/bash
 # Copyright (c) 2025, Acktarius, The Conceal Developers
 #
+# 1. Create a CodeQL database from your source code:
+# gh codeql database create codeql-db --language=javascript --source-root=.
+#
+# 2.Analyze the database using queries and output SARIF:
+# gh codeql database analyze codeql-db codeql/javascript-queries@latest --format=sarif-lates
+#
 # Submit SARIF file to GitHub CodeQL
 # Usage: ./submit-sarif.sh [GITHUB_TOKEN]
 
