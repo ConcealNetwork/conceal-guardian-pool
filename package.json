@@ -17,7 +17,7 @@
     "conceal-api": "^0.8.5",
     "config": "^3.3.7",
     "cors": "^2.8.5",
-    "express": "^5.1.0",
+    "express": "^5.2.1",
     "express-rate-limit": "^6.3.0",
     "follow-redirects": "^1.15.6",
     "moment": "^2.29.1",
