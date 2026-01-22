@@ -5,7 +5,9 @@
 # gh codeql database create codeql-db --language=javascript --source-root=.
 #
 # 2.Analyze the database using queries and output SARIF:
-# gh codeql database analyze codeql-db codeql/javascript-queries@latest --format=sarif-lates
+# Note: @latest requires CodeQL 2.23.9+. For CodeQL 2.21.0, use a compatible version:
+# gh codeql database analyze codeql-db codeql/javascript-queries@2.1.0 --format=sarif-latest --output=codeql-results.sarif --download
+# To use @latest, you need CodeQL 2.23.9+ (may require updating gh CLI and extension)
 #
 # Submit SARIF file to GitHub CodeQL
 # Usage: ./submit-sarif.sh [GITHUB_TOKEN]
