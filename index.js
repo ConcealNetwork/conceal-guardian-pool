@@ -51,9 +51,9 @@ const logger = winston.createLogger({
 });
 
 // update node data limiter
-const updateNodeLimier = rateLimit({
+const updateNodeLimiter = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 30, // limit each IP to 15 requests per windowMs
+  limit: 30, // limit each IP to 30 requests per windowMs
   message: "Too many requests created from this IP, please try again later",
   handler : function (req, res, next, options) {
     logger.error(`Denied update node request because of to many requests in short period from IP ${req.ip}`);
@@ -64,7 +64,7 @@ const updateNodeLimier = rateLimit({
 // update node data limiter
 const listNodesLimiter = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 300, // limit each IP to 15 requests per windowMs
+  limit: 300, // limit each IP to 300 requests per windowMs
   message: "Too many requests created from this IP, please try again later",
   handler : function (req, res, next, options) {
     logger.error(`Denied list nodes request because of to many requests in short period from IP ${req.ip}`);
@@ -301,7 +301,7 @@ app.get("/pool/random", listNodesLimiter, (req, res, next) => {
 });
 
 // post request for updating the node data
-app.post("/pool/update", updateNodeLimier, (req, res, next) => {
+app.post("/pool/update", updateNodeLimiter, (req, res, next) => {
   if ((req.body) && (req.body.id) && (req.body.nodeHost) && (req.body.nodePort)) {
     setNodeData(req.body, function (result) {
       res.json({ success: result });
