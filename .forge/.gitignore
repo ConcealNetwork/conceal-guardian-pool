@@ -1,0 +1,5 @@
+# Forge session scratch — keep layout docs + committed project config
+*
+!.gitignore
+!README.md
+!config.json
