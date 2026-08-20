@@ -114,9 +114,9 @@ app.use(function (err, req, res, next) {
   }
 });
 
-// start listener
-app.listen(config.server.port, () => {
-  console.log(`Server running on port ${config.server.port}`);
+// start listener (localhost only)
+app.listen(config.server.port, '127.0.0.1', () => {
+  console.log(`Server running on http://127.0.0.1:${config.server.port}`);
 });
 
 function getAllNodes(keys) {
