@@ -1,0 +1,11 @@
+{
+  "plan": {
+    "engine": "specs",
+    "dir": "specs"
+  },
+  "adr": {
+    "enabled": true,
+    "dir": "docs",
+    "decisionsDoc": "decisions.md"
+  }
+}

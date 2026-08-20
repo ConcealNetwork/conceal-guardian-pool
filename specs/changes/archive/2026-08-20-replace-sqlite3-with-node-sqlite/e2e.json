@@ -1,0 +1,16 @@
+{
+  "change": "replace-sqlite3-with-node-sqlite",
+  "notApplicable": null,
+  "steps": [
+    {
+      "name": "unit-storage",
+      "cmd": "npm test",
+      "expect": "pass"
+    },
+    {
+      "name": "product-loop-ticks-uptime",
+      "cmd": "node scripts/e2e-storage-loop.js",
+      "expect": "E2E_STORAGE_OK"
+    }
+  ]
+}

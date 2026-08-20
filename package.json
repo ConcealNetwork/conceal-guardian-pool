@@ -3,8 +3,11 @@
   "version": "1.1.0",
   "description": "Conceal Pool for Conceal Nodes",
   "main": "index.js",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test test/*.test.js"
   },
   "repository": {
     "type": "git",
@@ -18,15 +21,17 @@
     "config": "^3.3.7",
     "cors": "^2.8.6",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.2.1",
+    "express-rate-limit": "^8.6.1",
     "follow-redirects": "^1.15.6",
     "moment": "^2.29.1",
     "node-cache": "^5.1.2",
     "shelljs": "^0.8.5",
-    "sqlite3": "^5.1.6",
     "winston": "^3.6.0"
   },
   "overrides": {
+    "minimatch": "3.1.5",
+    "path-to-regexp": "^8.4.2",
+    "qs": "6.15.2",
     "tar-fs": "3.1.1",
     "tar": "7.5.6"
   },

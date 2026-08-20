@@ -1,95 +1,76 @@
-const sqlite3 = require('sqlite3');
+'use strict';
+
+const { DatabaseSync } = require('node:sqlite');
 const appRoot = require('app-root-path');
 const moment = require('moment');
 const path = require('path');
 const fs = require('fs');
 
-function database() {
-  var db = new sqlite3.Database(path.join(appRoot.path, "database.db"), sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
-    if (err) {
-      console.log('Could not connect to database', err);
-    } else {
-      if (fs.existsSync(path.join(appRoot.path, "database.db.sql"), 'utf8')) {
-        db.exec(fs.readFileSync(path.join(appRoot.path, "database.db.sql"), 'utf8'), function (err) {
-          if (err) {
-            console.log('Error intializing database', err);
-          }
-        });
-      }
-    }
-  });
+function database(options) {
+  const opts = options || {};
+  const dbPath = opts.dbPath || path.join(appRoot.path, 'database.db');
+  const schemaPath = opts.schemaPath || path.join(appRoot.path, 'database.db.sql');
 
-  function replaceAll(str, find, replace) {
-    return str.replace(new RegExp(find, 'g'), replace);
-  }  
+  let db;
+  try {
+    db = new DatabaseSync(dbPath);
+    if (fs.existsSync(schemaPath)) {
+      db.exec(fs.readFileSync(schemaPath, 'utf8'));
+    }
+  } catch (err) {
+    console.log('Could not connect to database', err);
+  }
 
   this.increaseClientTick = function (nodeId) {
-    // Validate nodeId to prevent SQL injection
     if (!nodeId || typeof nodeId !== 'string' || nodeId.length > 100) {
-      console.log("Invalid nodeId provided to increaseClientTick:", nodeId);
+      console.log('Invalid nodeId provided to increaseClientTick:', nodeId);
       return;
     }
-    
-    // Sanitize nodeId - only allow alphanumeric, hyphens, and underscores
+
     if (!/^[a-zA-Z0-9\-_]+$/.test(nodeId)) {
-      console.log("Invalid nodeId format:", nodeId);
+      console.log('Invalid nodeId format:', nodeId);
       return;
     }
 
-    var selectSQL = "SELECT * FROM uptime_client WHERE (NODE = ?) AND (YEAR = ?) AND (MONTH = ?)";
-    var insertSQL = "INSERT INTO uptime_client(NODE, YEAR, MONTH, TICKS) VALUES(?, ?, ?, 0)";
-    var updateSQL = "UPDATE uptime_client SET TICKS = TICKS + 1 WHERE (NODE = ?) AND (YEAR = ?) AND (MONTH = ?)";
+    const selectSQL = 'SELECT * FROM uptime_client WHERE (NODE = ?) AND (YEAR = ?) AND (MONTH = ?)';
+    const insertSQL = 'INSERT INTO uptime_client(NODE, YEAR, MONTH, TICKS) VALUES(?, ?, ?, 1)';
+    const updateSQL = 'UPDATE uptime_client SET TICKS = TICKS + 1 WHERE (NODE = ?) AND (YEAR = ?) AND (MONTH = ?)';
+    const year = moment().year();
+    const month = moment().month() + 1;
 
-    db.all(selectSQL, [nodeId, moment().year(), moment().month() + 1], function (err, rows) {
-      if (err) {
-        console.log("Error updating the client node tick", err);
+    try {
+      const rows = db.prepare(selectSQL).all(nodeId, year, month);
+      if (rows.length > 0) {
+        db.prepare(updateSQL).run(nodeId, year, month);
       } else {
-        if (rows.length > 0) {
-          db.run(updateSQL, [nodeId, moment().year(), moment().month() + 1], function (err) {
-            if (err) {
-              console.log("Error updating the client node tick", err);
-            }
-          });
-        } else {
-          db.run(insertSQL, [nodeId, moment().year(), moment().month() + 1], function (err) {
-            if (err) {
-              console.log("Error updating the client node tick", err);
-            }
-          });
-        }
+        db.prepare(insertSQL).run(nodeId, year, month);
       }
-    });
+    } catch (err) {
+      console.log('Error updating the client node tick', err);
+    }
   };
 
   this.increaseServerTick = function () {
-    var selectSQL = "SELECT * FROM uptime_server WHERE (YEAR = ?) AND (MONTH = ?)";
-    var insertSQL = "INSERT INTO uptime_server(YEAR, MONTH, TICKS) VALUES(?, ?, 0)";
-    var updateSQL = "UPDATE uptime_server SET TICKS = TICKS + 1 WHERE (YEAR = ?) AND (MONTH = ?)";
+    const selectSQL = 'SELECT * FROM uptime_server WHERE (YEAR = ?) AND (MONTH = ?)';
+    const insertSQL = 'INSERT INTO uptime_server(YEAR, MONTH, TICKS) VALUES(?, ?, 1)';
+    const updateSQL = 'UPDATE uptime_server SET TICKS = TICKS + 1 WHERE (YEAR = ?) AND (MONTH = ?)';
+    const year = moment().year();
+    const month = moment().month() + 1;
 
-    db.all(selectSQL, [moment().year(), moment().month() + 1], function (err, rows) {
-      if (err) {
-        console.log("Error updating the server node tick", err);
+    try {
+      const rows = db.prepare(selectSQL).all(year, month);
+      if (rows.length > 0) {
+        db.prepare(updateSQL).run(year, month);
       } else {
-        if (rows.length > 0) {
-          db.run(updateSQL, [moment().year(), moment().month() + 1], function (err) {
-            if (err) {
-              console.log("Error updating the server node tick", err);
-            }
-          });
-        } else {
-          db.run(insertSQL, [moment().year(), moment().month() + 1], function (err) {
-            if (err) {
-              console.log("Error updating the server node tick", err);
-            }
-          });
-        }
+        db.prepare(insertSQL).run(year, month);
       }
-    });
+    } catch (err) {
+      console.log('Error updating the server node tick', err);
+    }
   };
 
   this.getClientUptime = function (params, callback) {
-    // Use a completely static query structure to prevent SQL injection
-    var selectSQL = `SELECT uptime_client.NODE as 'id', 
+    const selectSQL = `SELECT uptime_client.NODE as 'id', 
                             sum(uptime_client.TICKS) as 'clientTicks',   
                             sum(uptime_server.TICKS) as 'serverTicks'
                      FROM uptime_client 
@@ -99,10 +80,9 @@ function database() {
                      WHERE uptime_client.NODE = ? AND uptime_client.YEAR = ? AND uptime_client.MONTH = ?
                      GROUP BY uptime_client.NODE`;
 
-    // Extract and validate parameters with safe defaults
-    var nodeId = null;
-    var year = moment().year();
-    var month = moment().month() + 1;
+    let nodeId = null;
+    let year = moment().year();
+    let month = moment().month() + 1;
 
     if (params.id && Array.isArray(params.id) && params.id.length > 0) {
       nodeId = params.id[0];
@@ -116,24 +96,17 @@ function database() {
       month = params.month[0];
     }
 
-    var queryParams = [nodeId, year, month];
-
-    db.all(selectSQL, queryParams, function (err, rows) {
-      if (err) {
-        console.log("Error getting the uptime data", err);
-        callback({});
-      } else {
-        var resultData = {
-          uptimes: []
-        };
-
-        for (var i = 0, len = rows.length; i < len; i++) {
-          resultData.uptimes.push(rows[i]);
-        }
-
-        callback(resultData);
+    try {
+      const rows = db.prepare(selectSQL).all(nodeId, year, month);
+      const resultData = { uptimes: [] };
+      for (let i = 0, len = rows.length; i < len; i++) {
+        resultData.uptimes.push(rows[i]);
       }
-    });
+      process.nextTick(() => callback(resultData));
+    } catch (err) {
+      console.log('Error getting the uptime data', err);
+      process.nextTick(() => callback({}));
+    }
   };
 }
 

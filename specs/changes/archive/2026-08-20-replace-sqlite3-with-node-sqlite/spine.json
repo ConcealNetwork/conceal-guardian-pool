@@ -1,0 +1,15 @@
+{
+  "change": "replace-sqlite3-with-node-sqlite",
+  "notApplicable": null,
+  "rows": [
+    {
+      "capability": "storage — built-in SQLite uptime ticks",
+      "library": "database.js",
+      "runtimeOwner": "index.js interval (increaseClientTick / increaseServerTick) and HTTP GET/ALL /pool/uptime",
+      "writes": "SQLite database.db tables uptime_client, uptime_server",
+      "reads": "same tables for getClientUptime",
+      "uiConsumer": "HTTP /pool/uptime JSON response",
+      "evidence": "npm test (test/database.test.js); smoke require of database.js"
+    }
+  ]
+}

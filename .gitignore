@@ -68,3 +68,14 @@ typings/
 # CodeQL analysis results
 codeql-db/
 *.sarif
+
+# AI
+AGENTS.md
+docs/*
+!docs/README.md
+!docs/[0-9][0-9][0-9][0-9]-*.md
+.repo-kit/
+.continue/
+.cursor/
+.forge/sessions/
+.forge/active.json

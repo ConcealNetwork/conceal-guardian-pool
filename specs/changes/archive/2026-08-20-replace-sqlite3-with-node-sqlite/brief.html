@@ -1,0 +1,78 @@
+<!-- forge-brief-specs-hash:03163edf38466f6f -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Operator brief — replace sqlite3 with node:sqlite</title>
+  <style>
+    body { font-family: system-ui, sans-serif; line-height: 1.5; max-width: 48rem; margin: 2rem auto; padding: 0 1rem; color: #111; }
+    h1, h2 { line-height: 1.25; }
+    ul { padding-left: 1.25rem; }
+    code { background: #f4f4f4; padding: 0.1em 0.35em; border-radius: 3px; }
+    .muted { color: #555; }
+  </style>
+</head>
+<body>
+  <h1>Replace native SQLite package with Node’s built-in driver</h1>
+
+  <h2>TL;DR</h2>
+  <p>
+    The pool will stop using the third-party <code>sqlite3</code> native module and use Node’s built-in SQLite support instead.
+    Uptime tracking behavior stays the same for operators and guardians; installs become simpler, and Node 22.13+ becomes the minimum.
+  </p>
+
+  <h2>What you'll get</h2>
+  <ul>
+    <li>Same uptime tick storage and <code>/pool/uptime</code> responses, without a native C++ addon dependency.</li>
+    <li>An explicit Node engine floor of 22.13 or newer.</li>
+    <li>An automated test suite for the storage layer so regressions are caught by <code>npm test</code>.</li>
+  </ul>
+
+  <h2>How it works</h2>
+  <p>
+    The storage module opens the same on-disk database file and runs the same SQL.
+    Internally it uses Node’s synchronous SQLite API, then still calls the existing uptime callback on the next event-loop turn so the rest of the app does not need rewriting.
+  </p>
+  <pre class="mermaid">
+flowchart LR
+  Guardians[Guardian updates] --> App[Pool app]
+  App --> Storage[Storage module]
+  Storage --> Builtin[node:sqlite]
+  Builtin --> File[(database.db)]
+  App --> Uptime["/pool/uptime"]
+  Uptime --> Storage
+  </pre>
+
+  <h2>What changes for you</h2>
+  <ul>
+    <li>Deploy/run on Node <strong>≥ 22.13</strong>.</li>
+    <li>You may see an experimental SQLite warning from Node until that API is marked stable — expected.</li>
+    <li>Run <code>npm test</code> to verify storage after install.</li>
+  </ul>
+
+  <h2>Risks and open questions</h2>
+  <ul>
+    <li>Built-in SQLite is still experimental in Node; a future Node major could tweak the API.</li>
+    <li>Database work is synchronous on the event loop; fine for current small tick queries, revisit if the store grows a lot.</li>
+  </ul>
+
+  <h2>Out of scope</h2>
+  <ul>
+    <li>Changing the database schema or uptime math.</li>
+    <li>Rewriting the HTTP app to async/await storage APIs.</li>
+    <li>Keeping a fallback to the old <code>sqlite3</code> package.</li>
+  </ul>
+
+  <h2>Work overview</h2>
+  <ul>
+    <li>Package and engines — 1 task</li>
+    <li>Storage rewrite with tests — 2 tasks</li>
+    <li>Smoke / wiring check — 1 task</li>
+  </ul>
+
+  <p class="muted">Open this brief anytime with <code>forge brief open</code>.</p>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script>mermaid.initialize({ startOnLoad: true });</script>
+</body>
+</html>
