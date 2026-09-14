@@ -115,9 +115,7 @@ const sanitizeNodeUpdate = (body, logger, nowMs = Date.now()) => {
       if (!isSubmittedHeightAccepted(height, nowMs)) {
         const maxAccepted = expectedHeight(nowMs) + heightWeekBlocks;
 
-        logger.warn(
-          `Rejected node ${id} height ${body.blockchain.height} (max accepted ${maxAccepted})`
-        );
+        logger.warn(`Rejected node ${id} height ${height} (max accepted ${maxAccepted})`);
         return null;
       }
 
