@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const { isHostAllowed, isValidNodeId, isValidPort } = require('../validate');
 const { sanitizeNodeUpdate } = require('../sanitize');
+const { applyDaemonInfo } = require('../probe');
 
 const nullLogger = { warn: () => {}, error: () => {}, info: () => {} };
 
@@ -131,5 +132,56 @@ describe('sanitizeNodeUpdate', () => {
     assert.equal(sanitizeNodeUpdate(null, nullLogger), null);
     assert.equal(sanitizeNodeUpdate('payload', nullLogger), null);
     assert.equal(sanitizeNodeUpdate([validBody()], nullLogger), null);
+  });
+});
+
+describe('applyDaemonInfo', () => {
+  it('copies daemon-reported values over the submitted data', () => {
+    const data = { id: 'node-1', blockchain: { height: 2953340 } };
+    const info = {
+      height: 2953345,
+      fee_address: 'ccxDaemonFeeAddress',
+      status: 'OK',
+      version: '6.0.2',
+      hashrate: 1234,
+    };
+
+    applyDaemonInfo(data, info, nullLogger);
+
+    assert.equal(data.blockchain.height, 2953345);
+    assert.equal(data.blockchain.fee_address, 'ccxDaemonFeeAddress');
+    assert.equal(data.blockchain.status, 'OK');
+    assert.equal(data.blockchain.version, '6.0.2');
+    assert.equal(data.blockchain.hashrate, 1234);
+  });
+
+  it('keeps the daemon height when the submitted one drifts too far', () => {
+    const warnings = [];
+    const logger = { warn: (msg) => warnings.push(msg) };
+    const data = { id: 'node-1', blockchain: { height: 100 } };
+
+    applyDaemonInfo(data, { height: 2953345 }, logger);
+
+    assert.equal(data.blockchain.height, 2953345);
+    assert.equal(warnings.length, 1);
+  });
+
+  it('tolerates normal height drift without warning', () => {
+    const warnings = [];
+    const logger = { warn: (msg) => warnings.push(msg) };
+    const data = { id: 'node-1', blockchain: { height: 2953344 } };
+
+    applyDaemonInfo(data, { height: 2953345 }, logger);
+
+    assert.equal(data.blockchain.height, 2953345);
+    assert.equal(warnings.length, 0);
+  });
+
+  it('leaves the data untouched on a missing daemon response', () => {
+    const data = { id: 'node-1', blockchain: { height: 100 } };
+
+    applyDaemonInfo(data, null, nullLogger);
+
+    assert.deepEqual(data.blockchain, { height: 100 });
   });
 });

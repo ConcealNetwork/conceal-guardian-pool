@@ -11,9 +11,9 @@ const config = require('./config.json');
 const moment = require('moment');
 const utils = require('./utils.js');
 const { sanitizeNodeUpdate } = require('./sanitize.js');
+const { probeNode } = require('./probe.js');
 const cors = require('cors');
 const path = require('node:path');
-const CCX = require('conceal-api');
 
 // query api timeout
 const apiTimeout = 3000;
@@ -236,39 +236,9 @@ function setNodeData(data, callback) {
       if (doCheckReachable) {
         updateCache[data.id] = moment().toISOString();
 
-        const CCXApiSSL = new CCX({
-          daemonHost: `https://${data.url ? data.url.host : data.nodeHost}`,
-          daemonRpcPort: data.url ? data.url.port : data.nodePort,
-          timeout: apiTimeout,
+        probeNode(data, { logger, apiTimeout }, (probedData) => {
+          callback(nodeCache.set(probedData.id, probedData, config.cache.expire));
         });
-
-        // check SSL connection first
-        CCXApiSSL.info()
-          .then(() => {
-            data.status.hasSSL = true;
-            data.status.isReachable = true;
-            callback(nodeCache.set(data.id, data, config.cache.expire));
-          })
-          .catch(() => {
-            const CCXApi = new CCX({
-              daemonHost: `http://${data.url ? data.url.host : data.nodeHost}`,
-              daemonRpcPort: data.url ? data.url.port : data.nodePort,
-              timeout: apiTimeout,
-            });
-
-            // check unsecure connection
-            CCXApi.info()
-              .then(() => {
-                data.status.hasSSL = false;
-                data.status.isReachable = true;
-                callback(nodeCache.set(data.id, data, config.cache.expire));
-              })
-              .catch(() => {
-                data.status.hasSSL = false;
-                data.status.isReachable = false;
-                callback(nodeCache.set(data.id, data, config.cache.expire));
-              });
-          });
       } else {
         data.status.hasSSL = nodeData.status.hasSSL;
         data.status.isReachable = nodeData.status.isReachable;
