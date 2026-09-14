@@ -10,6 +10,7 @@ const winston = require('winston');
 const config = require('./config.json');
 const moment = require('moment');
 const utils = require('./utils.js');
+const { sanitizeNodeUpdate } = require('./sanitize.js');
 const cors = require('cors');
 const path = require('node:path');
 const CCX = require('conceal-api');
@@ -91,7 +92,7 @@ const updateCache = {};
 
 // attach other libraries to the express application
 app.set('trust proxy', 1); // trust first proxy
-app.use(express.json()); // Express v5 built-in body parser
+app.use(express.json({ limit: '16kb' })); // Express v5 built-in body parser
 app.use(
   cors({
     origin: [
@@ -332,11 +333,14 @@ app.get('/pool/random', listNodesLimiter, (req, res) => {
 
 // post request for updating the node data
 app.post('/pool/update', updateNodeLimiter, (req, res) => {
-  if (req.body?.id && req.body.nodeHost && req.body.nodePort) {
-    setNodeData(req.body, (result) => {
+  const record = sanitizeNodeUpdate(req.body, logger);
+
+  if (record) {
+    setNodeData(record, (result) => {
       res.json({ success: result });
     });
   } else {
+    logger.warn('Rejected an update request with an invalid payload');
     res.json({ success: false });
   }
 });
