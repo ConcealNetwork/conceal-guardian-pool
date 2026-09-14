@@ -12,6 +12,15 @@ const moment = require('moment');
 const utils = require('./utils.js');
 const { sanitizeNodeUpdate } = require('./sanitize.js');
 const { probeNode } = require('./probe.js');
+const {
+  applyListingUpdate,
+  listingKey,
+  mustProbe,
+  occupantIdForKey,
+  preserveProbedChain,
+  syncedNodes,
+} = require('./listing-policy.js');
+const { toPublicNode, toPublicUptime, resolvePrivateId } = require('./public-id.js');
 const cors = require('cors');
 const path = require('node:path');
 
@@ -149,17 +158,13 @@ function getAllNodes(keys) {
 }
 
 function filterResults(req, values) {
-  const correctHeightList = {};
-  let correctHeightCnt = 0;
-  let filteredValues = [];
-  let correctHeight = 0;
   let isSyncedOnly = true;
 
   if (req.query.isSynced) {
     isSyncedOnly = req.query.isSynced.toUpperCase() === 'TRUE';
   }
 
-  filteredValues = values.filter((value) => {
+  const filteredValues = values.filter((value) => {
     let isAppropriate = true;
 
     if (req.query.hasFeeAddr) {
@@ -185,28 +190,10 @@ function filterResults(req, values) {
         ((req.query.hasSSL === 'true' && hasSSL) || (req.query.hasSSL === 'false' && !hasSSL));
     }
 
-    const nodeHeight = value.blockchain ? value.blockchain.height : 0;
-    correctHeightList[nodeHeight] = (correctHeightList[nodeHeight] || 0) + 1;
-
     return isAppropriate;
   });
 
-  // find the correct height
-  for (const propertyName in correctHeightList) {
-    if (correctHeightList[propertyName] > correctHeightCnt) {
-      correctHeightCnt = correctHeightList[propertyName];
-      correctHeight = propertyName;
-    }
-  }
-
-  if (isSyncedOnly) {
-    filteredValues = filteredValues.filter((value) => {
-      const nodeHeight = value.blockchain ? value.blockchain.height : 0;
-      return nodeHeight >= correctHeight - 2;
-    });
-  }
-
-  return filteredValues;
+  return syncedNodes(filteredValues, isSyncedOnly);
 }
 
 function setNodeData(data, callback) {
@@ -215,7 +202,6 @@ function setNodeData(data, callback) {
     (resultData) => {
       data.status.lastSeen = moment().toISOString();
       const nodeData = nodeCache.get(data.id);
-      let doCheckReachable = false;
 
       if (resultData?.uptimes && resultData.uptimes.length === 1) {
         const clientTicks = resultData.uptimes[0].clientTicks || 0;
@@ -225,24 +211,41 @@ function setNodeData(data, callback) {
         data.status.uptime = 0; // Default to 0 if no uptime data
       }
 
-      // do we need to check it
-      if (!updateCache[data.id] || !nodeData) {
-        doCheckReachable = true;
-      } else {
-        doCheckReachable =
-          moment.duration(moment(new Date()).diff(moment(updateCache[data.id]))).asMinutes() > 15;
-      }
+      const commitListing = (record, reachable, allowEvict) => {
+        const result = applyListingUpdate({
+          data: record,
+          existing: nodeData,
+          reachable,
+          occupantId: allowEvict
+            ? occupantIdForKey(getAllNodes(nodeCache.keys()), listingKey(record), record.id)
+            : undefined,
+        });
 
-      if (doCheckReachable) {
-        updateCache[data.id] = moment().toISOString();
+        if (!result.ok) {
+          logger.warn(
+            `Rejected node ${record.id} listing ${listingKey(record)} (${result.reason})`
+          );
+          callback(false);
+          return;
+        }
 
+        if (result.evictId) {
+          nodeCache.del(result.evictId);
+        }
+
+        callback(nodeCache.set(result.store.id, result.store, config.cache.expire));
+      };
+
+      if (mustProbe(nodeData, data, updateCache[data.id])) {
         probeNode(data, { logger, apiTimeout }, (probedData) => {
-          callback(nodeCache.set(probedData.id, probedData, config.cache.expire));
+          updateCache[data.id] = moment().toISOString();
+          commitListing(probedData, probedData.status.isReachable === true, true);
         });
       } else {
+        preserveProbedChain(data, nodeData);
         data.status.hasSSL = nodeData.status.hasSSL;
         data.status.isReachable = nodeData.status.isReachable;
-        callback(nodeCache.set(data.id, data, config.cache.expire));
+        commitListing(data, data.status.isReachable === true, false);
       }
     }
   );
@@ -270,7 +273,10 @@ function checkNodesUptimeStatus() {
 
 // get request for the list of all active nodes
 app.get('/pool/list', listNodesLimiter, (req, res) => {
-  res.json({ success: true, list: filterResults(req, getAllNodes(nodeCache.keys())) });
+  res.json({
+    success: true,
+    list: filterResults(req, getAllNodes(nodeCache.keys())).map(toPublicNode),
+  });
 });
 
 // count all active nodes by specified filters
@@ -318,8 +324,17 @@ app.post('/pool/update', updateNodeLimiter, (req, res) => {
 // post request for updating the node data
 app.all('/pool/uptime', listNodesLimiter, (req, res) => {
   if (req.body) {
-    storage.getClientUptime(req.body, (resultData) => {
-      res.json(resultData);
+    const knownIds = nodeCache.keys();
+    const query = { ...req.body };
+
+    if (Array.isArray(query.id)) {
+      query.id = query.id
+        .map((value) => resolvePrivateId(value, knownIds) || value)
+        .filter((value) => typeof value === 'string');
+    }
+
+    storage.getClientUptime(query, (resultData) => {
+      res.json(toPublicUptime(resultData));
     });
   }
 });

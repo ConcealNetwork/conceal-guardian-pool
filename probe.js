@@ -2,8 +2,20 @@
 //
 // Please see the included LICENSE file for more information.
 
-const { isHostAllowed, isValidPort } = require('./validate.js');
+const { isHostAllowed, isValidFeeAddress, isValidPort } = require('./validate.js');
 const CCX = require('conceal-api');
+
+const resolveProbeTarget = (data) => {
+  const hasDomainUrl = Boolean(data.url?.host);
+  const host = hasDomainUrl ? data.url.host : data.nodeHost;
+  const explicitPort = hasDomainUrl ? data.url.port : data.nodePort;
+
+  if (isValidPort(explicitPort)) {
+    return { host, port: Number(explicitPort) };
+  }
+
+  return { host, port: hasDomainUrl ? 443 : data.nodePort };
+};
 
 // daemon-reported fields that are copied over the submitted node data
 const daemonNumericFields = [
@@ -46,7 +58,7 @@ const applyDaemonInfo = (data, info, logger) => {
     data.blockchain.height = daemonHeight;
   }
 
-  if (typeof info.fee_address === 'string') {
+  if (isValidFeeAddress(info.fee_address)) {
     if ((data.blockchain.fee_address || '') !== info.fee_address) {
       logger.warn(
         `Node ${data.id} submitted a fee_address that does not match the daemon response, keeping the daemon value`
@@ -76,8 +88,7 @@ const applyDaemonInfo = (data, info, logger) => {
 // probe the node daemon, verify the submitted data against its response and hand
 // back the node data with reachability and daemon-reported values applied
 const probeNode = (data, options, callback) => {
-  const host = data.url ? data.url.host : data.nodeHost;
-  const port = data.url ? data.url.port : data.nodePort;
+  const { host, port } = resolveProbeTarget(data);
   const logger = options.logger;
   const apiTimeout = options.apiTimeout;
 
@@ -125,4 +136,4 @@ const probeNode = (data, options, callback) => {
     });
 };
 
-module.exports = { applyDaemonInfo, probeNode };
+module.exports = { applyDaemonInfo, probeNode, resolveProbeTarget };

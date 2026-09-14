@@ -80,3 +80,13 @@ docs/*
 .forge/sessions/
 .forge/active.json
 .openspec/
+
+# Local-only: live explorer listings (write UUIDs). Do not commit.
+test/live-pool-compat.test.js
+
+# Forge/OpenSpec working changes — ask before adding to git.
+# Committed catalog stays: specs/storage, specs/changes/archive/
+specs/changes/*
+!specs/changes/archive/
+!specs/changes/archive/**
+openspec/

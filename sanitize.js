@@ -2,7 +2,16 @@
 //
 // Please see the included LICENSE file for more information.
 
-const { isHostAllowed, isValidNodeId, isValidPort, maxHeight } = require('./validate.js');
+const {
+  expectedHeight,
+  heightWeekBlocks,
+  isHostAllowed,
+  isOmittedPort,
+  isSubmittedHeightAccepted,
+  isValidFeeAddress,
+  isValidNodeId,
+  isValidPort,
+} = require('./validate.js');
 
 const sanitizedString = (value, maxLength) => {
   if (typeof value !== 'string') {
@@ -39,7 +48,7 @@ const sanitizedPrimitiveMap = (source, maxEntries, maxValueLength) => {
 };
 
 // build a validated node record from the submitted update payload, null when rejected
-const sanitizeNodeUpdate = (body, logger) => {
+const sanitizeNodeUpdate = (body, logger, nowMs = Date.now()) => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return null;
   }
@@ -73,8 +82,14 @@ const sanitizeNodeUpdate = (body, logger) => {
 
   // optional custom url, dropped when it does not pass validation
   if (body.url && typeof body.url === 'object' && !Array.isArray(body.url)) {
-    if (isHostAllowed(body.url.host) && isValidPort(body.url.port)) {
-      record.url = { host: body.url.host, port: Number(body.url.port) };
+    if (
+      isHostAllowed(body.url.host) &&
+      (isOmittedPort(body.url.port) || isValidPort(body.url.port))
+    ) {
+      record.url = {
+        host: body.url.host,
+        port: isValidPort(body.url.port) ? Number(body.url.port) : '',
+      };
     } else {
       logger.warn(`Node ${id} submitted an invalid custom url, ignoring it`);
     }
@@ -97,7 +112,12 @@ const sanitizeNodeUpdate = (body, logger) => {
     if (body.blockchain.height !== undefined) {
       const height = Number(body.blockchain.height);
 
-      if (!Number.isFinite(height) || height < 0 || height > maxHeight) {
+      if (!isSubmittedHeightAccepted(height, nowMs)) {
+        const maxAccepted = expectedHeight(nowMs) + heightWeekBlocks;
+
+        logger.warn(
+          `Rejected node ${id} height ${body.blockchain.height} (max accepted ${maxAccepted})`
+        );
         return null;
       }
 
@@ -105,13 +125,11 @@ const sanitizeNodeUpdate = (body, logger) => {
     }
 
     if (body.blockchain.fee_address !== undefined) {
-      const feeAddress = sanitizedString(body.blockchain.fee_address, 200);
-
-      if (feeAddress === null) {
+      if (!isValidFeeAddress(body.blockchain.fee_address)) {
         return null;
       }
 
-      blockchain.fee_address = feeAddress;
+      blockchain.fee_address = body.blockchain.fee_address;
     }
 
     if (body.blockchain.status !== undefined) {
