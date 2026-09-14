@@ -1,10 +1,11 @@
-'use strict';
-
+// Copyright (c) 2019 -2026, Taegus Cromis, The Conceal Developers
+//
+// Please see the included LICENSE file for more information.
 const { DatabaseSync } = require('node:sqlite');
 const appRoot = require('app-root-path');
 const moment = require('moment');
-const path = require('path');
-const fs = require('fs');
+const path = require('node:path');
+const fs = require('node:fs');
 
 function database(options) {
   const opts = options || {};
@@ -21,7 +22,7 @@ function database(options) {
     console.log('Could not connect to database', err);
   }
 
-  this.increaseClientTick = function (nodeId) {
+  this.increaseClientTick = (nodeId) => {
     if (!nodeId || typeof nodeId !== 'string' || nodeId.length > 100) {
       console.log('Invalid nodeId provided to increaseClientTick:', nodeId);
       return;
@@ -34,7 +35,8 @@ function database(options) {
 
     const selectSQL = 'SELECT * FROM uptime_client WHERE (NODE = ?) AND (YEAR = ?) AND (MONTH = ?)';
     const insertSQL = 'INSERT INTO uptime_client(NODE, YEAR, MONTH, TICKS) VALUES(?, ?, ?, 1)';
-    const updateSQL = 'UPDATE uptime_client SET TICKS = TICKS + 1 WHERE (NODE = ?) AND (YEAR = ?) AND (MONTH = ?)';
+    const updateSQL =
+      'UPDATE uptime_client SET TICKS = TICKS + 1 WHERE (NODE = ?) AND (YEAR = ?) AND (MONTH = ?)';
     const year = moment().year();
     const month = moment().month() + 1;
 
@@ -50,7 +52,7 @@ function database(options) {
     }
   };
 
-  this.increaseServerTick = function () {
+  this.increaseServerTick = () => {
     const selectSQL = 'SELECT * FROM uptime_server WHERE (YEAR = ?) AND (MONTH = ?)';
     const insertSQL = 'INSERT INTO uptime_server(YEAR, MONTH, TICKS) VALUES(?, ?, 1)';
     const updateSQL = 'UPDATE uptime_server SET TICKS = TICKS + 1 WHERE (YEAR = ?) AND (MONTH = ?)';
@@ -69,7 +71,7 @@ function database(options) {
     }
   };
 
-  this.getClientUptime = function (params, callback) {
+  this.getClientUptime = (params, callback) => {
     const selectSQL = `SELECT uptime_client.NODE as 'id', 
                             sum(uptime_client.TICKS) as 'clientTicks',   
                             sum(uptime_server.TICKS) as 'serverTicks'

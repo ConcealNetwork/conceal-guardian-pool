@@ -1,15 +1,18 @@
-const rateLimit = require("express-rate-limit");
-const NodeCache = require("node-cache");
-const database = require("./database.js");
-const express = require("express");
+// Copyright (c) 2019 -2026, Taegus Cromis, The Conceal Developers
+//
+// Please see the included LICENSE file for more information.
+
+const rateLimit = require('express-rate-limit');
+const NodeCache = require('node-cache');
+const database = require('./database.js');
+const express = require('express');
 const winston = require('winston');
-const config = require("./config.json");
+const config = require('./config.json');
 const moment = require('moment');
-const utils = require("./utils.js");
-const cors = require("cors");
-const path = require("path");
-const CCX = require("conceal-api");
-const fs = require("fs");
+const utils = require('./utils.js');
+const cors = require('cors');
+const path = require('node:path');
+const CCX = require('conceal-api');
 
 // query api timeout
 const apiTimeout = 3000;
@@ -31,85 +34,96 @@ const logger = winston.createLogger({
     new winston.transports.File({
       filename: path.join(utils.ensureUserDataDir(), 'info.log'),
       maxsize: 10000000,
-      maxFiles: 5
+      maxFiles: 5,
     }),
     new winston.transports.File({
       filename: path.join(utils.ensureUserDataDir(), 'errors.log'),
       maxsize: 10000000,
       maxFiles: 5,
-      level: 'error'
-    })
+      level: 'error',
+    }),
   ],
   exceptionHandlers: [
     new winston.transports.File({
       filename: path.join(utils.ensureUserDataDir(), 'exceptions.log'),
       maxsize: 10000000,
-      maxFiles: 5
-    })
+      maxFiles: 5,
+    }),
   ],
-  format: winston.format(logFormatter)()
+  format: winston.format(logFormatter)(),
 });
 
 // update node data limiter
 const updateNodeLimiter = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
   limit: 30, // limit each IP to 30 requests per windowMs
-  message: "Too many requests created from this IP, please try again later",
-  handler : function (req, res, next, options) {
-    logger.error(`Denied update node request because of to many requests in short period from IP ${req.ip}`);
+  message: 'Too many requests created from this IP, please try again later',
+  handler: (req, res, _next, options) => {
+    logger.error(
+      `Denied update node request because of to many requests in short period from IP ${req.ip}`
+    );
     res.status(options.statusCode).send(options.message);
-  }
+  },
 });
 
 // update node data limiter
 const listNodesLimiter = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
   limit: 300, // limit each IP to 300 requests per windowMs
-  message: "Too many requests created from this IP, please try again later",
-  handler : function (req, res, next, options) {
-    logger.error(`Denied list nodes request because of to many requests in short period from IP ${req.ip}`);
+  message: 'Too many requests created from this IP, please try again later',
+  handler: (req, res, _next, options) => {
+    logger.error(
+      `Denied list nodes request because of to many requests in short period from IP ${req.ip}`
+    );
     res.status(options.statusCode).send(options.message);
-  }
+  },
 });
 
-var nodeCache = new NodeCache({ stdTTL: config.cache.expire, checkperiod: config.cache.checkPeriod }); // the cache object
-var storage = new database(); // create a new storage instance
-var app = express(); // create express app
+const nodeCache = new NodeCache({
+  stdTTL: config.cache.expire,
+  checkperiod: config.cache.checkPeriod,
+}); // the cache object
+const storage = new database(); // create a new storage instance
+const app = express(); // create express app
 
 // cache for last uptime check
-var updateCache = {};
+const updateCache = {};
 
 // attach other libraries to the express application
-app.set("trust proxy", 1); // trust first proxy
+app.set('trust proxy', 1); // trust first proxy
 app.use(express.json()); // Express v5 built-in body parser
-app.use(cors({
-  origin: [
-    'http://explorer.conceal.network',
-    'https://explorer.conceal.network',
-    'http://newexplorer.conceal.network',
-    'https://newexplorer.conceal.network',
-    'https://wws.conceal.network',
-    'https://wallet.conceal.network'
-  ],
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
-}));
-app.use(cors({
-  origin: '*',
-  methods: ['GET'],
-  allowedHeaders: ['Content-Type'],
-  credentials: false
-}));
+app.use(
+  cors({
+    origin: [
+      'http://explorer.conceal.network',
+      'https://explorer.conceal.network',
+      'http://newexplorer.conceal.network',
+      'https://newexplorer.conceal.network',
+      'https://wws.conceal.network',
+      'https://wallet.conceal.network',
+    ],
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+  })
+);
+app.use(
+  cors({
+    origin: '*',
+    methods: ['GET'],
+    allowedHeaders: ['Content-Type'],
+    credentials: false,
+  })
+);
 
 // handle any application errors
-app.use(function (err, req, res, next) {
+app.use((err, _req, res, _next) => {
   if (err) {
     logger.error('Error trying to execute request!', err);
 
     res.status(500).json({
       success: false,
-      error: err.message
+      error: err.message,
     });
   }
 });
@@ -120,10 +134,10 @@ app.listen(config.server.port, '127.0.0.1', () => {
 });
 
 function getAllNodes(keys) {
-  let nodeList = [];
+  const nodeList = [];
 
-  keys.forEach(function (value) {
-    let nodeData = nodeCache.get(value);
+  keys.forEach((value) => {
+    const nodeData = nodeCache.get(value);
 
     if (nodeData) {
       nodeList.push(nodeCache.get(value));
@@ -134,42 +148,50 @@ function getAllNodes(keys) {
 }
 
 function filterResults(req, values) {
-  var correctHeightList = {};
-  var correctHeightCnt = 0;
-  var filteredValues = [];
-  var correctHeight = 0;
-  var isSyncedOnly = true
+  const correctHeightList = {};
+  let correctHeightCnt = 0;
+  let filteredValues = [];
+  let correctHeight = 0;
+  let isSyncedOnly = true;
 
   if (req.query.isSynced) {
-    isSyncedOnly = req.query.isSynced.toUpperCase() == "TRUE";
+    isSyncedOnly = req.query.isSynced.toUpperCase() === 'TRUE';
   }
 
-  filteredValues = values.filter((value, index, array) => {
-    var isAppropriate = true;
+  filteredValues = values.filter((value) => {
+    let isAppropriate = true;
 
     if (req.query.hasFeeAddr) {
-      var hasFeeAddress = value.blockchain && value.blockchain.fee_address;
-      isAppropriate = isAppropriate && (((req.query.hasFeeAddr === "true") && hasFeeAddress) || ((req.query.hasFeeAddr === "false") && !hasFeeAddress));
+      const hasFeeAddress = value.blockchain?.fee_address;
+      isAppropriate =
+        isAppropriate &&
+        ((req.query.hasFeeAddr === 'true' && hasFeeAddress) ||
+          (req.query.hasFeeAddr === 'false' && !hasFeeAddress));
     }
 
     if (req.query.isReachable) {
-      var isReachable = value.status && value.status.isReachable;
-      isAppropriate = isAppropriate && (((req.query.isReachable === "true") && isReachable) || ((req.query.isReachable === "false") && !isReachable));
+      const isReachable = value.status?.isReachable;
+      isAppropriate =
+        isAppropriate &&
+        ((req.query.isReachable === 'true' && isReachable) ||
+          (req.query.isReachable === 'false' && !isReachable));
     }
 
     if (req.query.hasSSL) {
-      var hasSSL = value.status && value.status.hasSSL;
-      isAppropriate = isAppropriate && (((req.query.hasSSL === "true") && hasSSL) || ((req.query.hasSSL === "false") && !hasSSL));
+      const hasSSL = value.status?.hasSSL;
+      isAppropriate =
+        isAppropriate &&
+        ((req.query.hasSSL === 'true' && hasSSL) || (req.query.hasSSL === 'false' && !hasSSL));
     }
 
-    var nodeHeight = value.blockchain ? value.blockchain.height : 0;
+    const nodeHeight = value.blockchain ? value.blockchain.height : 0;
     correctHeightList[nodeHeight] = (correctHeightList[nodeHeight] || 0) + 1;
 
     return isAppropriate;
   });
 
   // find the correct height
-  for (var propertyName in correctHeightList) {
+  for (const propertyName in correctHeightList) {
     if (correctHeightList[propertyName] > correctHeightCnt) {
       correctHeightCnt = correctHeightList[propertyName];
       correctHeight = propertyName;
@@ -177,8 +199,8 @@ function filterResults(req, values) {
   }
 
   if (isSyncedOnly) {
-    filteredValues = filteredValues.filter((value, index, array) => {
-      var nodeHeight = value.blockchain ? value.blockchain.height : 0;
+    filteredValues = filteredValues.filter((value) => {
+      const nodeHeight = value.blockchain ? value.blockchain.height : 0;
       return nodeHeight >= correctHeight - 2;
     });
   }
@@ -187,75 +209,83 @@ function filterResults(req, values) {
 }
 
 function setNodeData(data, callback) {
-  storage.getClientUptime({ id: [data.id], year: [moment().year()], month: [moment().month() + 1] }, function (resultData) {
-    data.status.lastSeen = moment().toISOString();
-    let nodeData = nodeCache.get(data.id);
-    let doCheckReachable = false;
+  storage.getClientUptime(
+    { id: [data.id], year: [moment().year()], month: [moment().month() + 1] },
+    (resultData) => {
+      data.status.lastSeen = moment().toISOString();
+      const nodeData = nodeCache.get(data.id);
+      let doCheckReachable = false;
 
-    if (resultData && resultData.uptimes && (resultData.uptimes.length == 1)) {
-      const clientTicks = resultData.uptimes[0].clientTicks || 0;
-      const serverTicks = resultData.uptimes[0].serverTicks || 1; // Prevent division by zero
-      data.status.uptime = Math.round((clientTicks / serverTicks) * 100);
-    } else {
-      data.status.uptime = 0; // Default to 0 if no uptime data
-    }
+      if (resultData?.uptimes && resultData.uptimes.length === 1) {
+        const clientTicks = resultData.uptimes[0].clientTicks || 0;
+        const serverTicks = resultData.uptimes[0].serverTicks || 1; // Prevent division by zero
+        data.status.uptime = Math.round((clientTicks / serverTicks) * 100);
+      } else {
+        data.status.uptime = 0; // Default to 0 if no uptime data
+      }
 
-    // do we need to check it
-    if (!updateCache[data.id] || !nodeData) {
-      doCheckReachable = true;
-    } else {
-      doCheckReachable = moment.duration(moment(new Date()).diff(moment(updateCache[data.id]))).asMinutes() > 15;
-    }
+      // do we need to check it
+      if (!updateCache[data.id] || !nodeData) {
+        doCheckReachable = true;
+      } else {
+        doCheckReachable =
+          moment.duration(moment(new Date()).diff(moment(updateCache[data.id]))).asMinutes() > 15;
+      }
 
-    if (doCheckReachable) {
-      updateCache[data.id] = moment().toISOString();
+      if (doCheckReachable) {
+        updateCache[data.id] = moment().toISOString();
 
-      let CCXApiSSL = new CCX({
-        daemonHost: `https://${data.url ? data.url.host : data.nodeHost}`, 
-        daemonRpcPort: data.url ? data.url.port : data.nodePort,
-        timeout: apiTimeout
-      });
-
-      // check SSL connection first
-      CCXApiSSL.info().then(info => {
-        data.status.hasSSL = true;
-        data.status.isReachable = true;
-        callback(nodeCache.set(data.id, data, config.cache.expire));          
-      }).catch(err => {
-        let CCXApi = new CCX({
-          daemonHost: `http://${data.url ? data.url.host : data.nodeHost}`, 
+        const CCXApiSSL = new CCX({
+          daemonHost: `https://${data.url ? data.url.host : data.nodeHost}`,
           daemonRpcPort: data.url ? data.url.port : data.nodePort,
-          timeout: apiTimeout
+          timeout: apiTimeout,
         });
 
-        // check unsecure connection
-        CCXApi.info().then(info => {
-          data.status.hasSSL = false;  
-          data.status.isReachable = true;
-          callback(nodeCache.set(data.id, data, config.cache.expire));          
-        }).catch(err => {
-          data.status.hasSSL = false;  
-          data.status.isReachable = false;
-          callback(nodeCache.set(data.id, data, config.cache.expire));          
-        });
-      });
-    } else {
-      data.status.hasSSL = nodeData.status.hasSSL;
-      data.status.isReachable = nodeData.status.isReachable;      
-      callback(nodeCache.set(data.id, data, config.cache.expire));
+        // check SSL connection first
+        CCXApiSSL.info()
+          .then(() => {
+            data.status.hasSSL = true;
+            data.status.isReachable = true;
+            callback(nodeCache.set(data.id, data, config.cache.expire));
+          })
+          .catch(() => {
+            const CCXApi = new CCX({
+              daemonHost: `http://${data.url ? data.url.host : data.nodeHost}`,
+              daemonRpcPort: data.url ? data.url.port : data.nodePort,
+              timeout: apiTimeout,
+            });
+
+            // check unsecure connection
+            CCXApi.info()
+              .then(() => {
+                data.status.hasSSL = false;
+                data.status.isReachable = true;
+                callback(nodeCache.set(data.id, data, config.cache.expire));
+              })
+              .catch(() => {
+                data.status.hasSSL = false;
+                data.status.isReachable = false;
+                callback(nodeCache.set(data.id, data, config.cache.expire));
+              });
+          });
+      } else {
+        data.status.hasSSL = nodeData.status.hasSSL;
+        data.status.isReachable = nodeData.status.isReachable;
+        callback(nodeCache.set(data.id, data, config.cache.expire));
+      }
     }
-  });
+  );
 }
 
 // update uptime for nodes
 function checkNodesUptimeStatus() {
-  let keys = nodeCache.keys();
+  const keys = nodeCache.keys();
 
-  for (let key of keys) {
-    var nodeData = nodeCache.get(key);
+  for (const key of keys) {
+    const nodeData = nodeCache.get(key);
 
     if (nodeData) {
-      var lastSeen = moment(nodeData.status.lastSeen);
+      const lastSeen = moment(nodeData.status.lastSeen);
 
       if (moment.duration(moment(new Date()).diff(lastSeen)).asMinutes() < config.uptime.period) {
         storage.increaseClientTick(key);
@@ -268,32 +298,32 @@ function checkNodesUptimeStatus() {
 }
 
 // get request for the list of all active nodes
-app.get("/pool/list", listNodesLimiter, (req, res) => {
+app.get('/pool/list', listNodesLimiter, (req, res) => {
   res.json({ success: true, list: filterResults(req, getAllNodes(nodeCache.keys())) });
 });
 
 // count all active nodes by specified filters
-app.get("/pool/count", listNodesLimiter, (req, res) => {
+app.get('/pool/count', listNodesLimiter, (req, res) => {
   res.json({ success: true, count: filterResults(req, getAllNodes(nodeCache.keys())).length });
 });
 
 // get the random node back to user
-app.get("/pool/random", listNodesLimiter, (req, res, next) => {
-  var nodeList = filterResults(req, getAllNodes(nodeCache.keys()));
-  var randomNode = nodeList[Math.floor(Math.random() * nodeList.length)];
+app.get('/pool/random', listNodesLimiter, (req, res) => {
+  const nodeList = filterResults(req, getAllNodes(nodeCache.keys()));
+  const randomNode = nodeList[Math.floor(Math.random() * nodeList.length)];
 
   if (randomNode) {
-    let host = (randomNode.url && randomNode.url.host) ? randomNode.url.host : randomNode.nodeHost;
-    let port = (randomNode.url && randomNode.url.port) ? randomNode.url.port : randomNode.nodePort || 16000;
+    let host = randomNode.url?.host ? randomNode.url.host : randomNode.nodeHost;
+    const port = randomNode.url?.port ? randomNode.url.port : randomNode.nodePort || 16000;
 
     // Extract host by retaining components before first "/"
-    if (host && host.includes('/')) {
+    if (host?.includes('/')) {
       host = host.split('/')[0];
     }
 
-    res.json({ 
-      success: true, 
-      url: `${host}:${port}` 
+    res.json({
+      success: true,
+      url: `${host}:${port}`,
     });
   } else {
     res.json({ success: false });
@@ -301,27 +331,27 @@ app.get("/pool/random", listNodesLimiter, (req, res, next) => {
 });
 
 // post request for updating the node data
-app.post("/pool/update", updateNodeLimiter, (req, res, next) => {
-  if ((req.body) && (req.body.id) && (req.body.nodeHost) && (req.body.nodePort)) {
-    setNodeData(req.body, function (result) {
+app.post('/pool/update', updateNodeLimiter, (req, res) => {
+  if (req.body?.id && req.body.nodeHost && req.body.nodePort) {
+    setNodeData(req.body, (result) => {
       res.json({ success: result });
     });
   } else {
-    res.json({ success: false }); 
+    res.json({ success: false });
   }
 });
 
 // post request for updating the node data
-app.all("/pool/uptime", listNodesLimiter, (req, res, next) => {
+app.all('/pool/uptime', listNodesLimiter, (req, res) => {
   if (req.body) {
-    storage.getClientUptime(req.body, function (resultData) {
+    storage.getClientUptime(req.body, (resultData) => {
       res.json(resultData);
     });
   }
 });
 
 // get request for the list of all active nodes
-app.get("/pool/stats", listNodesLimiter, (req, res) => {
+app.get('/pool/stats', listNodesLimiter, (_req, res) => {
   res.json(nodeCache.getStats());
 });
 

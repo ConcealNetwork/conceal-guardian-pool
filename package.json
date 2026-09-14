@@ -7,7 +7,11 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
+    "format": "biome format .",
+    "format:fix": "biome format --write ."
   },
   "repository": {
     "type": "git",
@@ -27,6 +31,9 @@
     "node-cache": "^5.1.2",
     "shelljs": "^0.8.5",
     "winston": "^3.19.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.12"
   },
   "overrides": {
     "body-parser": "^2.3.0",

@@ -1,5 +1,3 @@
-'use strict';
-
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -33,11 +31,16 @@ describe('database (node:sqlite)', () => {
 
   it('applies schema so uptime tables exist', () => {
     const db = new DatabaseSync(paths.dbPath, { readOnly: true });
-    const tables = db.prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('uptime_client','uptime_server') ORDER BY name"
-    ).all();
+    const tables = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('uptime_client','uptime_server') ORDER BY name"
+      )
+      .all();
     db.close();
-    assert.deepEqual(tables.map((r) => r.name), ['uptime_client', 'uptime_server']);
+    assert.deepEqual(
+      tables.map((r) => r.name),
+      ['uptime_client', 'uptime_server']
+    );
   });
 
   it('increaseServerTick creates a row with TICKS=1', () => {
@@ -45,9 +48,9 @@ describe('database (node:sqlite)', () => {
     const db = new DatabaseSync(paths.dbPath, { readOnly: true });
     const year = moment().year();
     const month = moment().month() + 1;
-    const row = db.prepare(
-      'SELECT TICKS FROM uptime_server WHERE YEAR = ? AND MONTH = ?'
-    ).get(year, month);
+    const row = db
+      .prepare('SELECT TICKS FROM uptime_server WHERE YEAR = ? AND MONTH = ?')
+      .get(year, month);
     db.close();
     assert.ok(row);
     assert.equal(row.TICKS, 1);
@@ -77,9 +80,11 @@ describe('database (node:sqlite)', () => {
     storage.increaseClientTick('x'.repeat(101));
 
     const db = new DatabaseSync(paths.dbPath, { readOnly: true });
-    const count = db.prepare(
-      "SELECT COUNT(*) AS c FROM uptime_client WHERE NODE IN ('', 'bad id!') OR LENGTH(NODE) > 100"
-    ).get();
+    const count = db
+      .prepare(
+        "SELECT COUNT(*) AS c FROM uptime_client WHERE NODE IN ('', 'bad id!') OR LENGTH(NODE) > 100"
+      )
+      .get();
     db.close();
     assert.equal(count.c, 0);
   });

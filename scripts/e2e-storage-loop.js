@@ -1,5 +1,3 @@
-'use strict';
-
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -22,11 +20,11 @@ storage.getClientUptime(
   (result) => {
     try {
       if (!result || !Array.isArray(result.uptimes) || result.uptimes.length !== 1) {
-        throw new Error('expected one uptime row, got ' + JSON.stringify(result));
+        throw new Error(`expected one uptime row, got ${JSON.stringify(result)}`);
       }
       const row = result.uptimes[0];
       if (row.id !== nodeId || row.clientTicks < 1 || row.serverTicks < 1) {
-        throw new Error('unexpected uptime values: ' + JSON.stringify(row));
+        throw new Error(`unexpected uptime values: ${JSON.stringify(row)}`);
       }
       console.log('E2E_STORAGE_OK');
       process.exitCode = 0;
