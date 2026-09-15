@@ -21,7 +21,8 @@ const {
   syncedNodes,
 } = require('./listing-policy.js');
 const { toPublicNode, toPublicUptime, resolvePrivateId } = require('./public-id.js');
-const cors = require('cors');
+const { publicGetCors, concealWriteCors } = require('./middleware-cors.js');
+const crypto = require('node:crypto');
 const path = require('node:path');
 
 // query api timeout
@@ -95,6 +96,7 @@ const nodeCache = new NodeCache({
 }); // the cache object
 const storage = new database(); // create a new storage instance
 const app = express(); // create express app
+app.disable('x-powered-by');
 
 // cache for last uptime check
 const updateCache = {};
@@ -102,29 +104,6 @@ const updateCache = {};
 // attach other libraries to the express application
 app.set('trust proxy', 1); // trust first proxy
 app.use(express.json({ limit: '16kb' })); // Express v5 built-in body parser
-app.use(
-  cors({
-    origin: [
-      'http://explorer.conceal.network',
-      'https://explorer.conceal.network',
-      'http://newexplorer.conceal.network',
-      'https://newexplorer.conceal.network',
-      'https://wws.conceal.network',
-      'https://wallet.conceal.network',
-    ],
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,
-  })
-);
-app.use(
-  cors({
-    origin: '*',
-    methods: ['GET'],
-    allowedHeaders: ['Content-Type'],
-    credentials: false,
-  })
-);
 
 // handle any application errors
 app.use((err, _req, res, _next) => {
@@ -272,7 +251,7 @@ function checkNodesUptimeStatus() {
 }
 
 // get request for the list of all active nodes
-app.get('/pool/list', listNodesLimiter, (req, res) => {
+app.get('/pool/list', publicGetCors, listNodesLimiter, (req, res) => {
   res.json({
     success: true,
     list: filterResults(req, getAllNodes(nodeCache.keys())).map(toPublicNode),
@@ -280,14 +259,14 @@ app.get('/pool/list', listNodesLimiter, (req, res) => {
 });
 
 // count all active nodes by specified filters
-app.get('/pool/count', listNodesLimiter, (req, res) => {
+app.get('/pool/count', publicGetCors, listNodesLimiter, (req, res) => {
   res.json({ success: true, count: filterResults(req, getAllNodes(nodeCache.keys())).length });
 });
 
 // get the random node back to user
-app.get('/pool/random', listNodesLimiter, (req, res) => {
+app.get('/pool/random', publicGetCors, listNodesLimiter, (req, res) => {
   const nodeList = filterResults(req, getAllNodes(nodeCache.keys()));
-  const randomNode = nodeList[Math.floor(Math.random() * nodeList.length)];
+  const randomNode = nodeList.length ? nodeList[crypto.randomInt(nodeList.length)] : undefined;
 
   if (randomNode) {
     let host = randomNode.url?.host ? randomNode.url.host : randomNode.nodeHost;
@@ -307,8 +286,9 @@ app.get('/pool/random', listNodesLimiter, (req, res) => {
   }
 });
 
-// post request for updating the node data
-app.post('/pool/update', updateNodeLimiter, (req, res) => {
+// post request for updating the node data (Joe's node has no Origin — CORS skipped)
+app.options('/pool/update', concealWriteCors);
+app.post('/pool/update', concealWriteCors, updateNodeLimiter, (req, res) => {
   const record = sanitizeNodeUpdate(req.body, logger);
 
   if (record) {
@@ -322,25 +302,34 @@ app.post('/pool/update', updateNodeLimiter, (req, res) => {
 });
 
 // post request for updating the node data
-app.all('/pool/uptime', listNodesLimiter, (req, res) => {
-  if (req.body) {
-    const knownIds = nodeCache.keys();
-    const query = { ...req.body };
+app.options('/pool/uptime', concealWriteCors);
+app.all(
+  '/pool/uptime',
+  (req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD') return publicGetCors(req, res, next);
+    return concealWriteCors(req, res, next);
+  },
+  listNodesLimiter,
+  (req, res) => {
+    if (req.body) {
+      const knownIds = nodeCache.keys();
+      const query = { ...req.body };
 
-    if (Array.isArray(query.id)) {
-      query.id = query.id
-        .map((value) => resolvePrivateId(value, knownIds) || value)
-        .filter((value) => typeof value === 'string');
+      if (Array.isArray(query.id)) {
+        query.id = query.id
+          .map((value) => resolvePrivateId(value, knownIds) || value)
+          .filter((value) => typeof value === 'string');
+      }
+
+      storage.getClientUptime(query, (resultData) => {
+        res.json(toPublicUptime(resultData));
+      });
     }
-
-    storage.getClientUptime(query, (resultData) => {
-      res.json(toPublicUptime(resultData));
-    });
   }
-});
+);
 
 // get request for the list of all active nodes
-app.get('/pool/stats', listNodesLimiter, (_req, res) => {
+app.get('/pool/stats', publicGetCors, listNodesLimiter, (_req, res) => {
   res.json(nodeCache.getStats());
 });
 
