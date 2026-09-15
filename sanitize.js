@@ -31,15 +31,16 @@ const sanitizedPrimitiveMap = (source, maxEntries, maxValueLength) => {
     }
 
     const value = source[key];
+    const shortKey = key.substring(0, 50);
 
     if (typeof value === 'string') {
-      result[key.substring(0, 50)] = value.substring(0, maxValueLength);
+      result[shortKey] = value.substring(0, maxValueLength);
       count++;
-    } else if (typeof value === 'number' && Number.isFinite(value)) {
-      result[key.substring(0, 50)] = value;
-      count++;
-    } else if (typeof value === 'boolean') {
-      result[key.substring(0, 50)] = value;
+    } else if (
+      (typeof value === 'number' && Number.isFinite(value)) ||
+      typeof value === 'boolean'
+    ) {
+      result[shortKey] = value;
       count++;
     }
   }
@@ -47,24 +48,109 @@ const sanitizedPrimitiveMap = (source, maxEntries, maxValueLength) => {
   return result;
 };
 
+const isPlainObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
+
+const applyCustomUrl = (record, url, logger) => {
+  if (!isPlainObject(url)) {
+    return;
+  }
+
+  if (isHostAllowed(url.host) && (isOmittedPort(url.port) || isValidPort(url.port))) {
+    record.url = {
+      host: url.host,
+      port: isValidPort(url.port) ? Number(url.port) : '',
+    };
+    return;
+  }
+
+  logger.warn(`Node ${record.id} submitted an invalid custom url, ignoring it`);
+};
+
+const applyStatus = (record, status) => {
+  if (!isPlainObject(status)) {
+    return;
+  }
+
+  const errors = Number(status.errors);
+
+  record.status = {
+    errors: Number.isFinite(errors) ? errors : 0,
+    startTime: sanitizedString(status.startTime, 50) || '',
+    initialized: status.initialized === true,
+  };
+};
+
+/** @returns {boolean} false when the update must be rejected */
+const applyBlockchain = (record, blockchain, logger, nowMs) => {
+  if (!isPlainObject(blockchain)) {
+    return true;
+  }
+
+  const out = {};
+
+  if (blockchain.height !== undefined) {
+    const height = Number(blockchain.height);
+
+    if (!isSubmittedHeightAccepted(height, nowMs)) {
+      const maxAccepted = expectedHeight(nowMs) + heightWeekBlocks;
+      logger.warn(`Rejected node ${record.id} height ${height} (max accepted ${maxAccepted})`);
+      return false;
+    }
+
+    out.height = height;
+  }
+
+  if (blockchain.fee_address !== undefined) {
+    if (!isValidFeeAddress(blockchain.fee_address)) {
+      return false;
+    }
+
+    out.fee_address = blockchain.fee_address;
+  }
+
+  if (blockchain.status !== undefined) {
+    const status = sanitizedString(blockchain.status, 100);
+
+    if (status === null) {
+      return false;
+    }
+
+    out.status = status;
+  }
+
+  record.blockchain = out;
+  return true;
+};
+
+const applyLocation = (record, location) => {
+  if (!isPlainObject(location)) {
+    return;
+  }
+
+  const out = {};
+  const ip = sanitizedString(location.ip, 64);
+
+  if (ip !== null) {
+    out.ip = ip;
+  }
+
+  if (isPlainObject(location.data)) {
+    out.data = sanitizedPrimitiveMap(location.data, 20, 200);
+  }
+
+  record.location = out;
+};
+
 // build a validated node record from the submitted update payload, null when rejected
 const sanitizeNodeUpdate = (body, logger, nowMs = Date.now()) => {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+  if (!isPlainObject(body)) {
     return null;
   }
 
   const id = typeof body.id === 'string' ? body.id : '';
   const nodeHost = typeof body.nodeHost === 'string' ? body.nodeHost : '';
 
-  if (!isValidNodeId(id)) {
-    return null;
-  }
-
-  if (!isHostAllowed(nodeHost)) {
-    return null;
-  }
-
-  if (!isValidPort(body.nodePort)) {
+  if (!isValidNodeId(id) || !isHostAllowed(nodeHost) || !isValidPort(body.nodePort)) {
     return null;
   }
 
@@ -80,87 +166,14 @@ const sanitizeNodeUpdate = (body, logger, nowMs = Date.now()) => {
     location: null,
   };
 
-  // optional custom url, dropped when it does not pass validation
-  if (body.url && typeof body.url === 'object' && !Array.isArray(body.url)) {
-    if (
-      isHostAllowed(body.url.host) &&
-      (isOmittedPort(body.url.port) || isValidPort(body.url.port))
-    ) {
-      record.url = {
-        host: body.url.host,
-        port: isValidPort(body.url.port) ? Number(body.url.port) : '',
-      };
-    } else {
-      logger.warn(`Node ${id} submitted an invalid custom url, ignoring it`);
-    }
+  applyCustomUrl(record, body.url, logger);
+  applyStatus(record, body.status);
+
+  if (!applyBlockchain(record, body.blockchain, logger, nowMs)) {
+    return null;
   }
 
-  if (body.status && typeof body.status === 'object' && !Array.isArray(body.status)) {
-    const errors = Number(body.status.errors);
-
-    record.status = {
-      errors: Number.isFinite(errors) ? errors : 0,
-      startTime: sanitizedString(body.status.startTime, 50) || '',
-      initialized: body.status.initialized === true,
-    };
-  }
-
-  if (body.blockchain && typeof body.blockchain === 'object' && !Array.isArray(body.blockchain)) {
-    const blockchain = {};
-
-    // reject the update when present fields have a wrong type or an out-of-range value
-    if (body.blockchain.height !== undefined) {
-      const height = Number(body.blockchain.height);
-
-      if (!isSubmittedHeightAccepted(height, nowMs)) {
-        const maxAccepted = expectedHeight(nowMs) + heightWeekBlocks;
-
-        logger.warn(`Rejected node ${id} height ${height} (max accepted ${maxAccepted})`);
-        return null;
-      }
-
-      blockchain.height = height;
-    }
-
-    if (body.blockchain.fee_address !== undefined) {
-      if (!isValidFeeAddress(body.blockchain.fee_address)) {
-        return null;
-      }
-
-      blockchain.fee_address = body.blockchain.fee_address;
-    }
-
-    if (body.blockchain.status !== undefined) {
-      const status = sanitizedString(body.blockchain.status, 100);
-
-      if (status === null) {
-        return null;
-      }
-
-      blockchain.status = status;
-    }
-
-    record.blockchain = blockchain;
-  }
-
-  if (body.location && typeof body.location === 'object' && !Array.isArray(body.location)) {
-    const location = {};
-    const ip = sanitizedString(body.location.ip, 64);
-
-    if (ip !== null) {
-      location.ip = ip;
-    }
-
-    if (
-      body.location.data &&
-      typeof body.location.data === 'object' &&
-      !Array.isArray(body.location.data)
-    ) {
-      location.data = sanitizedPrimitiveMap(body.location.data, 20, 200);
-    }
-
-    record.location = location;
-  }
+  applyLocation(record, body.location);
 
   return record;
 };

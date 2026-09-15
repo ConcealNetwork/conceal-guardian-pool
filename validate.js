@@ -96,7 +96,7 @@ const isHostAllowed = (host, options = {}) => {
     return localhostOk;
   }
 
-  if (blockedHosts.has(normalized) || /^fe80:/.test(normalized)) {
+  if (blockedHosts.has(normalized) || normalized.startsWith('fe80:')) {
     return false;
   }
 
