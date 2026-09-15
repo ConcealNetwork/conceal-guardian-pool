@@ -10,9 +10,20 @@ const winston = require('winston');
 const config = require('./config.json');
 const moment = require('moment');
 const utils = require('./utils.js');
-const cors = require('cors');
+const { sanitizeNodeUpdate } = require('./sanitize.js');
+const { probeNode } = require('./probe.js');
+const {
+  applyListingUpdate,
+  listingKey,
+  mustProbe,
+  occupantIdForKey,
+  preserveProbedChain,
+  syncedNodes,
+} = require('./listing-policy.js');
+const { toPublicNode, toPublicUptime, resolvePrivateId } = require('./public-id.js');
+const { publicGetCors, concealWriteCors } = require('./middleware-cors.js');
+const crypto = require('node:crypto');
 const path = require('node:path');
-const CCX = require('conceal-api');
 
 // query api timeout
 const apiTimeout = 3000;
@@ -85,36 +96,14 @@ const nodeCache = new NodeCache({
 }); // the cache object
 const storage = new database(); // create a new storage instance
 const app = express(); // create express app
+app.disable('x-powered-by');
 
 // cache for last uptime check
 const updateCache = {};
 
 // attach other libraries to the express application
 app.set('trust proxy', 1); // trust first proxy
-app.use(express.json()); // Express v5 built-in body parser
-app.use(
-  cors({
-    origin: [
-      'http://explorer.conceal.network',
-      'https://explorer.conceal.network',
-      'http://newexplorer.conceal.network',
-      'https://newexplorer.conceal.network',
-      'https://wws.conceal.network',
-      'https://wallet.conceal.network',
-    ],
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,
-  })
-);
-app.use(
-  cors({
-    origin: '*',
-    methods: ['GET'],
-    allowedHeaders: ['Content-Type'],
-    credentials: false,
-  })
-);
+app.use(express.json({ limit: '16kb' })); // Express v5 built-in body parser
 
 // handle any application errors
 app.use((err, _req, res, _next) => {
@@ -148,17 +137,13 @@ function getAllNodes(keys) {
 }
 
 function filterResults(req, values) {
-  const correctHeightList = {};
-  let correctHeightCnt = 0;
-  let filteredValues = [];
-  let correctHeight = 0;
   let isSyncedOnly = true;
 
   if (req.query.isSynced) {
     isSyncedOnly = req.query.isSynced.toUpperCase() === 'TRUE';
   }
 
-  filteredValues = values.filter((value) => {
+  const filteredValues = values.filter((value) => {
     let isAppropriate = true;
 
     if (req.query.hasFeeAddr) {
@@ -184,28 +169,10 @@ function filterResults(req, values) {
         ((req.query.hasSSL === 'true' && hasSSL) || (req.query.hasSSL === 'false' && !hasSSL));
     }
 
-    const nodeHeight = value.blockchain ? value.blockchain.height : 0;
-    correctHeightList[nodeHeight] = (correctHeightList[nodeHeight] || 0) + 1;
-
     return isAppropriate;
   });
 
-  // find the correct height
-  for (const propertyName in correctHeightList) {
-    if (correctHeightList[propertyName] > correctHeightCnt) {
-      correctHeightCnt = correctHeightList[propertyName];
-      correctHeight = propertyName;
-    }
-  }
-
-  if (isSyncedOnly) {
-    filteredValues = filteredValues.filter((value) => {
-      const nodeHeight = value.blockchain ? value.blockchain.height : 0;
-      return nodeHeight >= correctHeight - 2;
-    });
-  }
-
-  return filteredValues;
+  return syncedNodes(filteredValues, isSyncedOnly);
 }
 
 function setNodeData(data, callback) {
@@ -214,7 +181,6 @@ function setNodeData(data, callback) {
     (resultData) => {
       data.status.lastSeen = moment().toISOString();
       const nodeData = nodeCache.get(data.id);
-      let doCheckReachable = false;
 
       if (resultData?.uptimes && resultData.uptimes.length === 1) {
         const clientTicks = resultData.uptimes[0].clientTicks || 0;
@@ -224,54 +190,41 @@ function setNodeData(data, callback) {
         data.status.uptime = 0; // Default to 0 if no uptime data
       }
 
-      // do we need to check it
-      if (!updateCache[data.id] || !nodeData) {
-        doCheckReachable = true;
-      } else {
-        doCheckReachable =
-          moment.duration(moment(new Date()).diff(moment(updateCache[data.id]))).asMinutes() > 15;
-      }
-
-      if (doCheckReachable) {
-        updateCache[data.id] = moment().toISOString();
-
-        const CCXApiSSL = new CCX({
-          daemonHost: `https://${data.url ? data.url.host : data.nodeHost}`,
-          daemonRpcPort: data.url ? data.url.port : data.nodePort,
-          timeout: apiTimeout,
+      const commitListing = (record, reachable, allowEvict) => {
+        const result = applyListingUpdate({
+          data: record,
+          existing: nodeData,
+          reachable,
+          occupantId: allowEvict
+            ? occupantIdForKey(getAllNodes(nodeCache.keys()), listingKey(record), record.id)
+            : undefined,
         });
 
-        // check SSL connection first
-        CCXApiSSL.info()
-          .then(() => {
-            data.status.hasSSL = true;
-            data.status.isReachable = true;
-            callback(nodeCache.set(data.id, data, config.cache.expire));
-          })
-          .catch(() => {
-            const CCXApi = new CCX({
-              daemonHost: `http://${data.url ? data.url.host : data.nodeHost}`,
-              daemonRpcPort: data.url ? data.url.port : data.nodePort,
-              timeout: apiTimeout,
-            });
+        if (!result.ok) {
+          logger.warn(
+            `Rejected node ${record.id} listing ${listingKey(record)} (${result.reason})`
+          );
+          callback(false);
+          return;
+        }
 
-            // check unsecure connection
-            CCXApi.info()
-              .then(() => {
-                data.status.hasSSL = false;
-                data.status.isReachable = true;
-                callback(nodeCache.set(data.id, data, config.cache.expire));
-              })
-              .catch(() => {
-                data.status.hasSSL = false;
-                data.status.isReachable = false;
-                callback(nodeCache.set(data.id, data, config.cache.expire));
-              });
-          });
+        if (result.evictId) {
+          nodeCache.del(result.evictId);
+        }
+
+        callback(nodeCache.set(result.store.id, result.store, config.cache.expire));
+      };
+
+      if (mustProbe(nodeData, data, updateCache[data.id])) {
+        probeNode(data, { logger, apiTimeout }, (probedData) => {
+          updateCache[data.id] = moment().toISOString();
+          commitListing(probedData, probedData.status.isReachable === true, true);
+        });
       } else {
+        preserveProbedChain(data, nodeData);
         data.status.hasSSL = nodeData.status.hasSSL;
         data.status.isReachable = nodeData.status.isReachable;
-        callback(nodeCache.set(data.id, data, config.cache.expire));
+        commitListing(data, data.status.isReachable === true, false);
       }
     }
   );
@@ -298,19 +251,22 @@ function checkNodesUptimeStatus() {
 }
 
 // get request for the list of all active nodes
-app.get('/pool/list', listNodesLimiter, (req, res) => {
-  res.json({ success: true, list: filterResults(req, getAllNodes(nodeCache.keys())) });
+app.get('/pool/list', publicGetCors, listNodesLimiter, (req, res) => {
+  res.json({
+    success: true,
+    list: filterResults(req, getAllNodes(nodeCache.keys())).map(toPublicNode),
+  });
 });
 
 // count all active nodes by specified filters
-app.get('/pool/count', listNodesLimiter, (req, res) => {
+app.get('/pool/count', publicGetCors, listNodesLimiter, (req, res) => {
   res.json({ success: true, count: filterResults(req, getAllNodes(nodeCache.keys())).length });
 });
 
 // get the random node back to user
-app.get('/pool/random', listNodesLimiter, (req, res) => {
+app.get('/pool/random', publicGetCors, listNodesLimiter, (req, res) => {
   const nodeList = filterResults(req, getAllNodes(nodeCache.keys()));
-  const randomNode = nodeList[Math.floor(Math.random() * nodeList.length)];
+  const randomNode = nodeList.length ? nodeList[crypto.randomInt(nodeList.length)] : undefined;
 
   if (randomNode) {
     let host = randomNode.url?.host ? randomNode.url.host : randomNode.nodeHost;
@@ -330,28 +286,50 @@ app.get('/pool/random', listNodesLimiter, (req, res) => {
   }
 });
 
-// post request for updating the node data
-app.post('/pool/update', updateNodeLimiter, (req, res) => {
-  if (req.body?.id && req.body.nodeHost && req.body.nodePort) {
-    setNodeData(req.body, (result) => {
+// post request for updating the node data (Joe's node has no Origin — CORS skipped)
+app.options('/pool/update', concealWriteCors);
+app.post('/pool/update', concealWriteCors, updateNodeLimiter, (req, res) => {
+  const record = sanitizeNodeUpdate(req.body, logger);
+
+  if (record) {
+    setNodeData(record, (result) => {
       res.json({ success: result });
     });
   } else {
+    logger.warn('Rejected an update request with an invalid payload');
     res.json({ success: false });
   }
 });
 
 // post request for updating the node data
-app.all('/pool/uptime', listNodesLimiter, (req, res) => {
-  if (req.body) {
-    storage.getClientUptime(req.body, (resultData) => {
-      res.json(resultData);
-    });
+app.options('/pool/uptime', concealWriteCors);
+app.all(
+  '/pool/uptime',
+  (req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD') return publicGetCors(req, res, next);
+    return concealWriteCors(req, res, next);
+  },
+  listNodesLimiter,
+  (req, res) => {
+    if (req.body) {
+      const knownIds = nodeCache.keys();
+      const query = { ...req.body };
+
+      if (Array.isArray(query.id)) {
+        query.id = query.id
+          .map((value) => resolvePrivateId(value, knownIds) || value)
+          .filter((value) => typeof value === 'string');
+      }
+
+      storage.getClientUptime(query, (resultData) => {
+        res.json(toPublicUptime(resultData));
+      });
+    }
   }
-});
+);
 
 // get request for the list of all active nodes
-app.get('/pool/stats', listNodesLimiter, (_req, res) => {
+app.get('/pool/stats', publicGetCors, listNodesLimiter, (_req, res) => {
   res.json(nodeCache.getStats());
 });
 
