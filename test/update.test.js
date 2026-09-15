@@ -185,7 +185,7 @@ describe('sanitizeNodeUpdate', () => {
 
   it('logs when a submitted height is outside the accepted window', () => {
     const warnings = [];
-    const logger = { warn: (msg) => warnings.push(msg) };
+    const logger = { warn: (msg, meta) => warnings.push({ msg, meta }) };
     const tooHigh = heightAnchor + heightWeekBlocks + 1;
 
     assert.equal(
@@ -193,8 +193,9 @@ describe('sanitizeNodeUpdate', () => {
       null
     );
     assert.equal(warnings.length, 1);
-    assert.match(warnings[0], new RegExp(`height ${tooHigh}`));
-    assert.match(warnings[0], new RegExp(`max accepted ${heightAnchor + heightWeekBlocks}`));
+    assert.equal(warnings[0].msg, 'Rejected node height outside accepted window');
+    assert.equal(warnings[0].meta.height, tooHigh);
+    assert.equal(warnings[0].meta.maxAccepted, heightAnchor + heightWeekBlocks);
   });
 
   it('drops an invalid custom url but keeps the record', () => {

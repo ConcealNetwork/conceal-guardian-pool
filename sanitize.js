@@ -63,7 +63,7 @@ const applyCustomUrl = (record, url, logger) => {
     return;
   }
 
-  logger.warn(`Node ${record.id} submitted an invalid custom url, ignoring it`);
+  logger.warn('Node submitted an invalid custom url, ignoring it', { nodeId: record.id });
 };
 
 const applyStatus = (record, status) => {
@@ -93,7 +93,11 @@ const applyBlockchain = (record, blockchain, logger, nowMs) => {
 
     if (!isSubmittedHeightAccepted(height, nowMs)) {
       const maxAccepted = expectedHeight(nowMs) + heightWeekBlocks;
-      logger.warn(`Rejected node ${record.id} height ${height} (max accepted ${maxAccepted})`);
+      logger.warn('Rejected node height outside accepted window', {
+        nodeId: record.id,
+        height,
+        maxAccepted,
+      });
       return false;
     }
 
