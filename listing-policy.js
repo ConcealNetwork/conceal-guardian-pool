@@ -29,22 +29,13 @@ const mustProbe = (existing, data, lastProbeAt, now = Date.now()) => {
 };
 
 const preserveProbedChain = (incoming, existing) => {
-  if (!incoming.blockchain) {
+  // On probe skip / failed re-probe: keep the last daemon getinfo snapshot
+  // (height, fee, status, version, counters). Do not replace it with the
+  // sanitized submit subset, which omits blockchain.version and peers/hashrate.
+  if (existing?.blockchain && typeof existing.blockchain === 'object') {
+    incoming.blockchain = { ...existing.blockchain };
+  } else if (!incoming.blockchain) {
     incoming.blockchain = {};
-  }
-
-  if (existing?.blockchain) {
-    if (existing.blockchain.height !== undefined) {
-      incoming.blockchain.height = existing.blockchain.height;
-    }
-
-    if (existing.blockchain.fee_address !== undefined) {
-      incoming.blockchain.fee_address = existing.blockchain.fee_address;
-    }
-
-    if (existing.blockchain.status !== undefined) {
-      incoming.blockchain.status = existing.blockchain.status;
-    }
   }
 
   return incoming;

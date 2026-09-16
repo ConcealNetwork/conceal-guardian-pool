@@ -185,6 +185,34 @@ describe('preserveProbedChain', () => {
     assert.equal(stored.blockchain.fee_address, existing.blockchain.fee_address);
     assert.equal(stored.blockchain.status, existing.blockchain.status);
   });
+
+  it('keeps last probed daemon version and other getinfo fields on skip', () => {
+    const incoming = {
+      id: 'u1',
+      version: '1.2.3',
+      blockchain: { height: 100, fee_address: 'ccx7posted', status: 'LIE' },
+    };
+    const existing = {
+      id: 'u1',
+      version: '1.2.2',
+      blockchain: {
+        height: 2159003,
+        fee_address: '',
+        status: 'OK',
+        version: '6.7.5',
+        difficulty: 34100000,
+        hashrate: 42,
+      },
+    };
+
+    const stored = preserveProbedChain(incoming, existing);
+
+    assert.equal(stored.version, '1.2.3');
+    assert.equal(stored.blockchain.version, '6.7.5');
+    assert.equal(stored.blockchain.difficulty, 34100000);
+    assert.equal(stored.blockchain.hashrate, 42);
+    assert.equal(stored.blockchain.height, existing.blockchain.height);
+  });
 });
 
 describe('synced filter', () => {
