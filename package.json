@@ -29,7 +29,7 @@
     "follow-redirects": "^1.16.0",
     "moment": "^2.29.1",
     "node-cache": "^5.1.2",
-    "shelljs": "^0.8.5",
+    "shelljs": "0.8.5",
     "winston": "^3.19.0"
   },
   "devDependencies": {
@@ -37,7 +37,7 @@
   },
   "overrides": {
     "body-parser": "^2.3.0",
-    "brace-expansion": "^1.1.18",
+    "brace-expansion": "^1.1.21",
     "minimatch": "^3.1.5",
     "path-to-regexp": "^8.4.2",
     "qs": "6.16.0"
