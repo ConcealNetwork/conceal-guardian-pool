@@ -5,7 +5,7 @@ The pool also has an "inactive cleanup feature". If a node does not send data fo
 
 ## API endpoints:
 
-* /pool/update -> Guardian notify. Send the raw UUID from `nodedata.json` as `id`. A **new** id or a **changed** host:port is stored only if the pool can `getinfo` that target. Same host, same id may skip the probe for 15 minutes; last probed height and fee stay (the client cannot overwrite them). Height more than one week ahead of the expected tip is rejected. A syncing (low) height is accepted if the daemon answers. One listing per probe host:port: a new id replaces the old one only after a successful `getinfo`.
+* /pool/update -> Guardian notify. Send the raw UUID from `nodedata.json` as `id`. A **new** id or a **changed** host:port is stored only if the pool can `getinfo` that target. Same host, same id may skip the probe for 4 minutes (configurable via `probe.skipSeconds`); last probed height and fee stay (the client cannot overwrite them). Height more than one week ahead of the expected tip is rejected. A syncing (low) height is accepted if the daemon answers. One listing per probe host:port: a new id replaces the old one only after a successful `getinfo`.
 * /pool/random -> Selects a random node from a list of all nodes. Additional parametes may narrow the list.
 * /pool/list -> Lists nodes in the pool. The `id` field is `sha256(guardian uuid)` hex, not the write secret. Default list is the synced set (see **isSynced**).
 * /pool/count -> Counts nodes after the same filters as list.

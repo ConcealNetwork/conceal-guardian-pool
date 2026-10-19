@@ -2,9 +2,9 @@
 //
 // Please see the included LICENSE file for more information.
 
+const config = require('./config.json');
 const { resolveProbeTarget } = require('./probe.js');
-
-const probeSkipMs = 15 * 60 * 1000;
+const probeSkipMs = (config.probe?.skipSeconds ?? 240) * 1000;
 
 const listingKey = (data) => {
   const { host, port } = resolveProbeTarget(data);

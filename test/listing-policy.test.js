@@ -7,11 +7,10 @@ const {
   mustProbe,
   occupantIdForKey,
   preserveProbedChain,
+  probeSkipMs,
   reachableMajorityHeight,
   syncedNodes,
 } = require('../listing-policy');
-
-const probeSkipMs = 15 * 60 * 1000;
 
 const ipNode = (id, host = '203.0.113.10', port = 16000) => ({
   id,
@@ -51,12 +50,12 @@ describe('mustProbe', () => {
     assert.equal(mustProbe(existing, data, now - 1000, now), true);
   });
 
-  it('skips when the same key was probed inside 15 minutes', () => {
+  it('skips when the same key was probed inside the skip window', () => {
     const existing = ipNode('u1');
     assert.equal(mustProbe(existing, data, now - 60 * 1000, now), false);
   });
 
-  it('probes when the last probe is older than 15 minutes', () => {
+  it('probes when the last probe is older than the skip window', () => {
     const existing = ipNode('u1');
     assert.equal(mustProbe(existing, data, now - probeSkipMs - 1, now), true);
   });

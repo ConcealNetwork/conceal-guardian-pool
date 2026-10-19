@@ -8,5 +8,8 @@
 	},
 	"uptime": {
 		"period": 60
+	},
+	"probe": {
+		"skipSeconds": 240
 	}
 }
