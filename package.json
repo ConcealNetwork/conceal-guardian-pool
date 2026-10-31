@@ -36,7 +36,7 @@
     "@biomejs/biome": "2.5.12"
   },
   "overrides": {
-    "body-parser": "^2.3.0",
+    "body-parser": "^2.4.0",
     "brace-expansion": "^1.1.21",
     "minimatch": "^3.1.5",
     "path-to-regexp": "^8.4.2",
