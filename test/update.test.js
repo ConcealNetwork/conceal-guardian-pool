@@ -130,6 +130,24 @@ describe('validate', () => {
     assert.equal(isAddressBlocked('::127.0.0.1'), true);
   });
 
+  it('blocks the IPv4-translated (SIIT) form ::ffff:0:a.b.c.d by its embedded ranges', () => {
+    assert.equal(isHostAllowed('::ffff:0:127.0.0.1'), false);
+    assert.equal(isHostAllowed('::ffff:0:169.254.169.254'), false);
+    assert.equal(isHostAllowed('::ffff:0:10.0.0.1'), false);
+    // hex-tail spellings of the SIIT form: the explicit 0 group puts 0xffff at group 4
+    assert.equal(isHostAllowed('::ffff:0:7f00:1'), false);
+    assert.equal(isHostAllowed('::ffff:0:a9fe:a9fe'), false);
+    // '::ffff:102:304' is the hex spelling of the MAPPED form of public 1.2.3.4
+    // (0xffff at group 5), so it stays allowed — judged by the embedded ranges
+    assert.equal(isHostAllowed('::ffff:102:304'), true);
+    assert.equal(isAddressBlocked('::ffff:0:169.254.169.254'), true);
+    // embedded ranges are judged, not blanket-blocked: a public target stays allowed
+    assert.equal(isHostAllowed('::ffff:0:8.8.8.8'), true);
+    // regressions: the mapped and compatible forms must stay blocked
+    assert.equal(isHostAllowed('::ffff:127.0.0.1'), false);
+    assert.equal(isHostAllowed('::127.0.0.1'), false);
+  });
+
   it('classifies resolved addresses for the probe pin', () => {
     assert.equal(isAddressBlocked('127.0.0.1'), true);
     assert.equal(isAddressBlocked('::1'), true);
