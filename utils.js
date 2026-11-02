@@ -2,7 +2,6 @@
 //
 // Please see the included LICENSE file for more information.
 
-const shell = require('shelljs');
 const path = require('node:path');
 const fs = require('node:fs');
 
@@ -15,9 +14,7 @@ module.exports = {
         : `${process.env.HOME}/.local/share`);
     userDataDir = path.join(userDataDir, 'ccxNodePool');
 
-    if (!fs.existsSync(userDataDir)) {
-      shell.mkdir('-p', userDataDir);
-    }
+    fs.mkdirSync(userDataDir, { recursive: true });
 
     return userDataDir;
   },

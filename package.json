@@ -26,21 +26,18 @@
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
-    "follow-redirects": "^1.16.0",
+    "follow-redirects": "^1.16.2",
     "moment": "^2.29.1",
     "node-cache": "^5.1.2",
-    "shelljs": "0.8.5",
     "winston": "^3.19.0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.12"
   },
   "overrides": {
-    "body-parser": "^2.3.0",
-    "brace-expansion": "^1.1.21",
-    "minimatch": "^3.1.5",
+    "body-parser": "^2.4.0",
     "path-to-regexp": "^8.4.2",
-    "qs": "6.16.0"
+    "qs": "6.16.1"
   },
   "jshintConfig": {
     "expr": true,
