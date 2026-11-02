@@ -6,9 +6,6 @@
 const nodeIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const hostCharsetPattern = /^[a-zA-Z0-9.\-:[\]]+$/;
 
-// hosts that are never accepted as node or probe targets
-const blockedHosts = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::', '::1']);
-
 // Set true to accept 127.0.0.1 / localhost for local pool testing (port is still 1-65535).
 const allowLocalhost = false;
 
@@ -25,6 +22,9 @@ const expectedHeight = (nowMs = Date.now()) =>
 const isSubmittedHeightAccepted = (height, nowMs = Date.now()) =>
   Number.isFinite(height) && height >= 0 && height <= expectedHeight(nowMs) + heightWeekBlocks;
 
+// Strict canonical dotted-quad only. Non-canonical IPv4 forms (decimal '2130706433',
+// hex '0x7f000001', octal-ish '0177.0.0.1', short '127.1') return null so callers
+// can fail closed instead of treating them as resolvable hostnames.
 const parseIpv4 = (host) => {
   const parts = host.split('.');
 
@@ -33,7 +33,8 @@ const parseIpv4 = (host) => {
   }
 
   const octets = parts.map((part) => {
-    if (!/^\d{1,3}$/.test(part)) {
+    // leading zeros are rejected: '0177' is ambiguous octal input, not a canonical octet
+    if (!/^(0|[1-9]\d{0,2})$/.test(part)) {
       return Number.NaN;
     }
 
@@ -47,9 +48,62 @@ const parseIpv4 = (host) => {
   return octets;
 };
 
-const isLoopbackHost = (host) => host === 'localhost' || host === '::1' || host.startsWith('127.');
+// Parse a bracket-free, lowercase IPv6 literal into its 8 16-bit groups.
+// Supports '::' compression once and an embedded dotted-quad tail ('::ffff:1.2.3.4').
+const parseIpv6 = (host) => {
+  if (host.includes(':::')) {
+    return null;
+  }
 
-const isNonRoutableIpv4 = (octets) => {
+  let embedded = null;
+  let body = host;
+  const lastColon = host.lastIndexOf(':');
+
+  if (host.slice(lastColon + 1).includes('.')) {
+    const octets = parseIpv4(host.slice(lastColon + 1));
+
+    if (!octets) {
+      return null;
+    }
+
+    embedded = [(octets[0] << 8) | octets[1], (octets[2] << 8) | octets[3]];
+    body = host.slice(0, lastColon);
+  }
+
+  const halves = body.split('::');
+
+  if (halves.length > 2) {
+    return null;
+  }
+
+  const head = halves[0] === '' ? [] : halves[0].split(':');
+  const tail = halves.length === 2 && halves[1] !== '' ? halves[1].split(':') : [];
+
+  if (
+    !head.every((group) => /^[0-9a-f]{1,4}$/.test(group)) ||
+    !tail.every((group) => /^[0-9a-f]{1,4}$/.test(group))
+  ) {
+    return null;
+  }
+
+  const missing = 8 - head.length - tail.length - (embedded ? 2 : 0);
+
+  if (missing < 0 || (halves.length === 1 && missing !== 0)) {
+    return null;
+  }
+
+  const groups = [...head, ...Array(missing).fill('0'), ...tail].map((group) =>
+    Number.parseInt(group, 16)
+  );
+
+  if (embedded) {
+    groups.push(embedded[0], embedded[1]);
+  }
+
+  return groups;
+};
+
+const isBlockedIpv4 = (octets) => {
   const [a, b] = octets;
 
   // 0.0.0.0/8 unspecified, 10.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16,
@@ -62,6 +116,54 @@ const isNonRoutableIpv4 = (octets) => {
     (a === 172 && b >= 16 && b <= 31) ||
     (a === 192 && b === 168)
   );
+};
+
+const isLoopbackIpv6 = (groups) =>
+  groups.slice(0, 7).every((group) => group === 0) && groups[7] === 1;
+
+const isBlockedIpv6 = (groups) => {
+  if (isLoopbackIpv6(groups)) {
+    return true;
+  }
+
+  if (groups[0] === 0) {
+    // '::' unspecified
+    if (groups.every((group) => group === 0)) {
+      return true;
+    }
+
+    // ::/96 with an embedded IPv4 tail: the mapped form ::ffff:0:0/96 and the
+    // deprecated IPv4-compatible form are both judged by the embedded IPv4 ranges
+    if (
+      groups.slice(1, 5).every((group) => group === 0) &&
+      (groups[5] === 0xffff || groups[6] !== 0 || groups[7] !== 0)
+    ) {
+      return isBlockedIpv4([groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff]);
+    }
+  }
+
+  // fe80::/10 link-local, fc00::/7 unique-local
+  return groups[0] >>> 6 === 0x3fa || groups[0] >>> 9 === 0x7e;
+};
+
+// classify an already-resolved address (probe-time pinning): true means the
+// address must never be connected to. Unparseable input fails closed.
+const isAddressBlocked = (address) => {
+  if (typeof address !== 'string' || address.length === 0) {
+    return true;
+  }
+
+  const candidate = address.replace(/^\[|]$/g, '').toLowerCase();
+
+  if (candidate.includes(':')) {
+    const groups = parseIpv6(candidate);
+
+    return groups ? isBlockedIpv6(groups) : true;
+  }
+
+  const octets = parseIpv4(candidate);
+
+  return octets ? isBlockedIpv4(octets) : true;
 };
 
 const isOmittedPort = (port) => port === '' || port === undefined || port === null;
@@ -92,17 +194,48 @@ const isHostAllowed = (host, options = {}) => {
   const normalized = hostname.replace(/^\[|]$/g, '').toLowerCase();
   const localhostOk = options.allowLocalhost === true || allowLocalhost;
 
-  if (isLoopbackHost(normalized)) {
-    return localhostOk;
-  }
-
-  if (blockedHosts.has(normalized) || normalized.startsWith('fe80:')) {
+  // canonical names only: trailing dots and *.localhost never reach resolution
+  if (normalized.endsWith('.') || normalized.endsWith('.localhost')) {
     return false;
   }
 
-  const ipv4 = parseIpv4(normalized);
+  if (normalized === 'localhost') {
+    return localhostOk;
+  }
 
-  if (ipv4 && isNonRoutableIpv4(ipv4)) {
+  if (normalized.includes(':')) {
+    const groups = parseIpv6(normalized);
+
+    if (!groups) {
+      return false;
+    }
+
+    if (isLoopbackIpv6(groups)) {
+      return localhostOk;
+    }
+
+    return !isBlockedIpv6(groups);
+  }
+
+  // a numeric host must be a canonical dotted-quad; decimal, hex, octal and
+  // shortened IPv4 literals ('2130706433', '0x7f000001', '127.1') fail closed
+  if (/^[0-9.]+$/.test(normalized)) {
+    const octets = parseIpv4(normalized);
+
+    if (!octets) {
+      return false;
+    }
+
+    if (octets[0] === 127) {
+      return localhostOk;
+    }
+
+    return !isBlockedIpv4(octets);
+  }
+
+  // remaining single-label hostnames ('myhost', hex forms like '7f000001')
+  // have no public resolution path and fail closed
+  if (!normalized.includes('.')) {
     return false;
   }
 
@@ -127,6 +260,7 @@ module.exports = {
   heightAnchor,
   heightAnchorMs,
   heightWeekBlocks,
+  isAddressBlocked,
   isHostAllowed,
   isOmittedPort,
   isSubmittedHeightAccepted,

@@ -1,11 +1,14 @@
-const { describe, it } = require('node:test');
+const { describe, it, mock } = require('node:test');
 const assert = require('node:assert/strict');
+const dns = require('node:dns');
 
 const {
+  blockTimeSeconds,
   expectedHeight,
   heightAnchor,
   heightAnchorMs,
   heightWeekBlocks,
+  isAddressBlocked,
   isHostAllowed,
   isSubmittedHeightAccepted,
   isValidFeeAddress,
@@ -13,7 +16,7 @@ const {
   isValidPort,
 } = require('../validate');
 const { sanitizeNodeUpdate } = require('../sanitize');
-const { applyDaemonInfo, resolveProbeTarget } = require('../probe');
+const { applyDaemonInfo, probeNode, resolveProbeTarget } = require('../probe');
 
 const nullLogger = { warn: () => {}, error: () => {}, info: () => {} };
 const guardianId = '550e8400-e29b-41d4-a716-446655440000';
@@ -73,7 +76,55 @@ describe('validate', () => {
   it('accepts loopback only when allowLocalhost is on', () => {
     assert.equal(isHostAllowed('127.0.0.1', { allowLocalhost: true }), true);
     assert.equal(isHostAllowed('localhost', { allowLocalhost: true }), true);
+    assert.equal(isHostAllowed('::1', { allowLocalhost: true }), true);
     assert.equal(isHostAllowed('10.0.0.1', { allowLocalhost: true }), false);
+    assert.equal(isHostAllowed('0.0.0.0', { allowLocalhost: true }), false);
+  });
+
+  it('rejects non-canonical IPv4 literals that resolvers would map to internal addresses', () => {
+    assert.equal(isHostAllowed('2130706433'), false);
+    assert.equal(isHostAllowed('0x7f000001'), false);
+    assert.equal(isHostAllowed('0177.0.0.1'), false);
+    assert.equal(isHostAllowed('127.1'), false);
+    assert.equal(isHostAllowed('1.2.3.4.5'), false);
+    assert.equal(isHostAllowed('7f000001'), false);
+  });
+
+  it('rejects trailing-dot and *.localhost hosts', () => {
+    assert.equal(isHostAllowed('ccxapi.conceal.network.'), false);
+    assert.equal(isHostAllowed('node.localhost'), false);
+    assert.equal(isHostAllowed('node.localhost', { allowLocalhost: true }), false);
+  });
+
+  it('rejects non-canonical and internal IPv6 literals', () => {
+    assert.equal(isHostAllowed('::ffff:169.254.169.254'), false);
+    assert.equal(isHostAllowed('[::ffff:127.0.0.1]'), false);
+    assert.equal(isHostAllowed('::ffff:10.0.0.1'), false);
+    assert.equal(isHostAllowed('fd00::5'), false);
+    assert.equal(isHostAllowed('fe80::1'), false);
+    assert.equal(isHostAllowed('::'), false);
+    assert.equal(isHostAllowed('garbage:::1'), false);
+    assert.equal(isHostAllowed('[::ffff:8.8.8.8]'), true);
+    assert.equal(isHostAllowed('2606:4700::1111'), true);
+  });
+
+  it('classifies resolved addresses for the probe pin', () => {
+    assert.equal(isAddressBlocked('127.0.0.1'), true);
+    assert.equal(isAddressBlocked('::1'), true);
+    assert.equal(isAddressBlocked('::'), true);
+    assert.equal(isAddressBlocked('169.254.169.254'), true);
+    assert.equal(isAddressBlocked('10.1.2.3'), true);
+    assert.equal(isAddressBlocked('192.168.0.5'), true);
+    assert.equal(isAddressBlocked('172.16.31.7'), true);
+    assert.equal(isAddressBlocked('fe80::1'), true);
+    assert.equal(isAddressBlocked('fd12::1'), true);
+    assert.equal(isAddressBlocked('::ffff:127.0.0.1'), true);
+    assert.equal(isAddressBlocked('not-an-address'), true);
+    assert.equal(isAddressBlocked(''), true);
+    assert.equal(isAddressBlocked('203.0.113.10'), false);
+    assert.equal(isAddressBlocked('8.8.8.8'), false);
+    assert.equal(isAddressBlocked('2606:4700::1111'), false);
+    assert.equal(isAddressBlocked('::ffff:8.8.8.8'), false);
   });
 
   it('accepts integer ports in range and rejects the rest', () => {
@@ -236,61 +287,108 @@ describe('sanitizeNodeUpdate', () => {
 });
 
 describe('applyDaemonInfo', () => {
+  // probe time 10 blocks after the anchor keeps every fixture height in window
+  const probeNowMs = heightAnchorMs + 10 * blockTimeSeconds * 1000;
+  const probeHeight = heightAnchor + 10;
+
   it('copies daemon-reported values over the submitted data', () => {
-    const data = { id: 'node-1', blockchain: { height: 2953340 } };
+    const data = { id: 'node-1', blockchain: { height: probeHeight - 1 } };
     const info = {
-      height: 2953345,
+      height: probeHeight,
       fee_address: sampleFeeAddress,
       status: 'OK',
       version: '6.0.2',
       hashrate: 1234,
     };
 
-    applyDaemonInfo(data, info, nullLogger);
+    assert.equal(applyDaemonInfo(data, info, nullLogger, probeNowMs), true);
 
-    assert.equal(data.blockchain.height, 2953345);
+    assert.equal(data.blockchain.height, probeHeight);
     assert.equal(data.blockchain.fee_address, sampleFeeAddress);
     assert.equal(data.blockchain.status, 'OK');
     assert.equal(data.blockchain.version, '6.0.2');
     assert.equal(data.blockchain.hashrate, 1234);
   });
 
-  it('keeps the daemon height when the submitted one drifts too far', () => {
+  it('rejects the daemon response when the submitted height drifts too far', () => {
     const warnings = [];
     const logger = { warn: (msg) => warnings.push(msg) };
-    const data = { id: 'node-1', blockchain: { height: 100 } };
+    const data = { id: 'node-1', blockchain: { height: probeHeight - 10, fee_address: '' } };
 
-    applyDaemonInfo(data, { height: 2953345 }, logger);
+    assert.equal(
+      applyDaemonInfo(
+        data,
+        { height: probeHeight, fee_address: sampleFeeAddress, status: 'OK' },
+        logger,
+        probeNowMs
+      ),
+      false
+    );
 
-    assert.equal(data.blockchain.height, 2953345);
+    assert.equal(data.blockchain.height, probeHeight - 10);
+    assert.equal(data.blockchain.fee_address, '');
+    assert.equal(data.blockchain.status, undefined);
     assert.equal(warnings.length, 1);
+  });
+
+  it('rejects a far-future daemon height without overwriting anything', () => {
+    const data = { id: 'node-1', blockchain: { height: probeHeight } };
+    const farFuture = expectedHeight(probeNowMs) + heightWeekBlocks + 5;
+
+    assert.equal(applyDaemonInfo(data, { height: farFuture }, nullLogger, probeNowMs), false);
+    assert.equal(data.blockchain.height, probeHeight);
   });
 
   it('tolerates normal height drift without warning', () => {
     const warnings = [];
     const logger = { warn: (msg) => warnings.push(msg) };
-    const data = { id: 'node-1', blockchain: { height: 2953344 } };
+    const data = { id: 'node-1', blockchain: { height: probeHeight - 2 } };
 
-    applyDaemonInfo(data, { height: 2953345 }, logger);
-
-    assert.equal(data.blockchain.height, 2953345);
+    assert.equal(applyDaemonInfo(data, { height: probeHeight }, logger, probeNowMs), true);
+    assert.equal(data.blockchain.height, probeHeight);
     assert.equal(warnings.length, 0);
   });
 
   it('does not copy an invalid daemon fee_address', () => {
     const data = { id: 'node-1', blockchain: { fee_address: sampleFeeAddress } };
 
-    applyDaemonInfo(data, { fee_address: 'ccx7short' }, nullLogger);
-
+    assert.equal(applyDaemonInfo(data, { fee_address: 'ccx7short' }, nullLogger, probeNowMs), true);
     assert.equal(data.blockchain.fee_address, sampleFeeAddress);
   });
 
   it('leaves the data untouched on a missing daemon response', () => {
-    const data = { id: 'node-1', blockchain: { height: 100 } };
+    const data = { id: 'node-1', blockchain: { height: probeHeight } };
 
-    applyDaemonInfo(data, null, nullLogger);
+    assert.equal(applyDaemonInfo(data, null, nullLogger, probeNowMs), true);
+    assert.deepEqual(data.blockchain, { height: probeHeight });
+  });
+});
 
-    assert.deepEqual(data.blockchain, { height: 100 });
+describe('probeNode address pinning', () => {
+  it('refuses to probe a hostname whose resolved address is blocked', async () => {
+    const lookup = mock.method(dns, 'lookup', (_hostname, _options, callback) => {
+      callback(null, [{ address: '127.0.0.1', family: 4 }]);
+    });
+
+    try {
+      const data = {
+        id: 'node-1',
+        nodeHost: 'rebound.attacker.example',
+        nodePort: 18081,
+        status: {},
+        blockchain: { height: heightAnchor },
+      };
+
+      await new Promise((resolve) => {
+        probeNode(data, { logger: nullLogger, apiTimeout: 250 }, resolve);
+      });
+
+      assert.equal(data.status.hasSSL, false);
+      assert.equal(data.status.isReachable, false);
+      assert.equal(data.blockchain.height, heightAnchor);
+    } finally {
+      lookup.mock.restore();
+    }
   });
 });
 
