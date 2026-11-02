@@ -37,7 +37,7 @@ const daemonNumericFields = [
   'white_peerlist_size',
 ];
 
-// height difference between submitted and daemon data that is treated as normal drift
+// height difference that is logged; an in-window daemon height is still kept
 const heightTolerance = 2;
 
 // apply the values reported by the node daemon over the data submitted to the pool.
@@ -70,9 +70,8 @@ const applyDaemonInfo = (data, info, logger, nowMs = Date.now()) => {
       Math.abs(claimedHeight - daemonHeight) > heightTolerance
     ) {
       logger.warn(
-        `Node ${data.id} submitted height ${claimedHeight} but the daemon reports ${daemonHeight}, rejecting the daemon response`
+        `Node ${data.id} submitted height ${claimedHeight} but the daemon reports ${daemonHeight}, keeping the daemon value`
       );
-      return false;
     }
 
     data.blockchain.height = daemonHeight;
@@ -238,8 +237,8 @@ const probeNode = (data, options, callback) => {
 
     attemptAll(true, 0).then((sslInfo) => {
       if (sslInfo) {
-        applyDaemonInfo(data, sslInfo, logger, Date.now());
-        finish(true, true);
+        const accepted = applyDaemonInfo(data, sslInfo, logger, Date.now());
+        finish(accepted, accepted);
         return;
       }
 
@@ -250,11 +249,13 @@ const probeNode = (data, options, callback) => {
       }
 
       attemptAll(false, 0).then((info) => {
-        if (info) {
-          applyDaemonInfo(data, info, logger, Date.now());
+        if (!info) {
+          finish(false, false);
+          return;
         }
 
-        finish(false, Boolean(info));
+        const accepted = applyDaemonInfo(data, info, logger, Date.now());
+        finish(false, accepted);
       });
     });
   });

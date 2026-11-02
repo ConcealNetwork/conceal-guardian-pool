@@ -322,24 +322,25 @@ describe('applyDaemonInfo', () => {
     assert.equal(data.blockchain.hashrate, 1234);
   });
 
-  it('rejects the daemon response when the submitted height drifts too far', () => {
+  it('keeps an in-window daemon height when the claim drifts by more than the tolerance', () => {
     const warnings = [];
     const logger = { warn: (msg) => warnings.push(msg) };
-    const data = { id: 'node-1', blockchain: { height: probeHeight - 10, fee_address: '' } };
+    const data = { id: 'node-1', blockchain: { height: probeHeight - 10, fee_address: sampleFeeAddress } };
 
     assert.equal(
       applyDaemonInfo(
         data,
-        { height: probeHeight, fee_address: sampleFeeAddress, status: 'OK' },
+        { height: probeHeight, fee_address: sampleFeeAddress, status: 'OK', version: '6.7.5' },
         logger,
         probeNowMs
       ),
-      false
+      true
     );
 
-    assert.equal(data.blockchain.height, probeHeight - 10);
-    assert.equal(data.blockchain.fee_address, '');
-    assert.equal(data.blockchain.status, undefined);
+    assert.equal(data.blockchain.height, probeHeight);
+    assert.equal(data.blockchain.fee_address, sampleFeeAddress);
+    assert.equal(data.blockchain.status, 'OK');
+    assert.equal(data.blockchain.version, '6.7.5');
     assert.equal(warnings.length, 1);
   });
 
@@ -464,6 +465,68 @@ describe('probeNode address pinning', () => {
       assert.equal(data.blockchain.status, 'OK');
       assert.equal(data.blockchain.version, '6.4.5');
       assert.equal(data.blockchain.fee_address, sampleFeeAddress);
+    } finally {
+      lookup.mock.restore();
+      httpsRequest.mock.restore();
+      httpRequest.mock.restore();
+    }
+  });
+
+  it('does not list a node whose daemon height is outside the accepted window', async () => {
+    const farFuture = expectedHeight(Date.now()) + heightWeekBlocks + 50;
+    const lookup = mock.method(dns, 'lookup', (_hostname, _options, callback) => {
+      callback(null, [{ address: '203.0.113.10', family: 4 }]);
+    });
+    const httpsRequest = mock.method(https, 'request', () => {
+      const request = new EventEmitter();
+
+      request.destroy = () => {};
+      request.end = () => {
+        queueMicrotask(() => request.emit('error', new Error('no tls')));
+      };
+
+      return request;
+    });
+    const httpRequest = mock.method(http, 'request', (_options, callback) => {
+      const request = new EventEmitter();
+
+      request.destroy = () => {};
+      request.end = () => {
+        queueMicrotask(() => {
+          const response = new EventEmitter();
+
+          response.statusCode = 200;
+          response.resume = () => {};
+          response.setEncoding = () => {};
+          callback(response);
+          response.emit(
+            'data',
+            JSON.stringify({ height: farFuture, status: 'OK', version: '6.7.5' })
+          );
+          response.emit('end');
+        });
+      };
+
+      return request;
+    });
+
+    try {
+      const data = {
+        id: 'node-1',
+        nodeHost: 'node.example.com',
+        nodePort: 16000,
+        status: {},
+        blockchain: { height: heightAnchor },
+      };
+
+      await new Promise((resolve) => {
+        probeNode(data, { logger: nullLogger, apiTimeout: 500 }, resolve);
+      });
+
+      assert.equal(data.status.hasSSL, false);
+      assert.equal(data.status.isReachable, false);
+      assert.equal(data.blockchain.height, heightAnchor);
+      assert.equal(data.blockchain.version, undefined);
     } finally {
       lookup.mock.restore();
       httpsRequest.mock.restore();
