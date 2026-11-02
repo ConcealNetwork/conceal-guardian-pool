@@ -1,6 +1,9 @@
 const { describe, it, mock } = require('node:test');
 const assert = require('node:assert/strict');
+const { EventEmitter } = require('node:events');
 const dns = require('node:dns');
+const http = require('node:http');
+const https = require('node:https');
 
 const {
   blockTimeSeconds,
@@ -88,6 +91,9 @@ describe('validate', () => {
     assert.equal(isHostAllowed('127.1'), false);
     assert.equal(isHostAllowed('1.2.3.4.5'), false);
     assert.equal(isHostAllowed('7f000001'), false);
+    assert.equal(isHostAllowed('0x7f.1'), false);
+    assert.equal(isHostAllowed('0x7f.0.0.1'), false);
+    assert.equal(isHostAllowed('0x10.1'), false);
   });
 
   it('rejects trailing-dot and *.localhost hosts', () => {
@@ -106,6 +112,12 @@ describe('validate', () => {
     assert.equal(isHostAllowed('garbage:::1'), false);
     assert.equal(isHostAllowed('[::ffff:8.8.8.8]'), true);
     assert.equal(isHostAllowed('2606:4700::1111'), true);
+    assert.equal(isHostAllowed('64:ff9b::1.2.3.4'), true);
+    assert.equal(isHostAllowed('2001:db8::101.102.103.104'), true);
+    assert.equal(isHostAllowed('::8.8.8.8'), true);
+    assert.equal(isHostAllowed('::127.0.0.1'), false);
+    assert.equal(isAddressBlocked('::8.8.8.8'), false);
+    assert.equal(isAddressBlocked('::127.0.0.1'), true);
   });
 
   it('classifies resolved addresses for the probe pin', () => {
@@ -388,6 +400,74 @@ describe('probeNode address pinning', () => {
       assert.equal(data.blockchain.height, heightAnchor);
     } finally {
       lookup.mock.restore();
+    }
+  });
+
+  it('marks a node reachable when /getinfo is a bare object', async () => {
+    const lookup = mock.method(dns, 'lookup', (_hostname, _options, callback) => {
+      callback(null, [{ address: '203.0.113.10', family: 4 }]);
+    });
+    const httpsRequest = mock.method(https, 'request', () => {
+      const request = new EventEmitter();
+
+      request.destroy = () => {};
+      request.end = () => {
+        queueMicrotask(() => request.emit('error', new Error('no tls')));
+      };
+
+      return request;
+    });
+    const httpRequest = mock.method(http, 'request', (_options, callback) => {
+      const request = new EventEmitter();
+
+      request.destroy = () => {};
+      request.end = () => {
+        queueMicrotask(() => {
+          const response = new EventEmitter();
+
+          response.statusCode = 200;
+          response.resume = () => {};
+          response.setEncoding = () => {};
+          callback(response);
+          response.emit(
+            'data',
+            JSON.stringify({
+              height: heightAnchor,
+              status: 'OK',
+              version: '6.4.5',
+              fee_address: sampleFeeAddress,
+            })
+          );
+          response.emit('end');
+        });
+      };
+
+      return request;
+    });
+
+    try {
+      const data = {
+        id: 'node-1',
+        nodeHost: 'node.example.com',
+        nodePort: 16000,
+        status: {},
+        blockchain: { height: heightAnchor, fee_address: '' },
+      };
+
+      await new Promise((resolve) => {
+        probeNode(data, { logger: nullLogger, apiTimeout: 500 }, resolve);
+      });
+
+      assert.equal(data.status.hasSSL, false);
+      assert.equal(data.status.isReachable, true);
+      assert.equal(data.blockchain.height, heightAnchor);
+      assert.equal(data.blockchain.status, 'OK');
+      assert.equal(data.blockchain.version, '6.4.5');
+      assert.equal(data.blockchain.fee_address, sampleFeeAddress);
+    } finally {
+      lookup.mock.restore();
+      httpsRequest.mock.restore();
+      httpRequest.mock.restore();
     }
   });
 });

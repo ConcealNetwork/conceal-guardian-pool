@@ -153,19 +153,33 @@ const fetchDaemonInfo = (hostname, address, port, pathPrefix, useSSL, apiTimeout
       }
 
       let body = '';
+      let settled = false;
+      const finish = (info) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        resolve(info);
+      };
 
       response.setEncoding('utf8');
       response.on('data', (chunk) => {
         body += chunk;
+
+        if (body.length > 65536) {
+          request.destroy();
+          finish(null);
+        }
       });
       response.on('end', () => {
         try {
           const parsed = JSON.parse(body);
-          const info = parsed && typeof parsed === 'object' ? parsed.result : null;
+          const info = parsed && typeof parsed === 'object' ? (parsed.result ?? parsed) : null;
 
-          resolve(info && typeof info === 'object' ? info : null);
+          finish(info && typeof info === 'object' ? info : null);
         } catch {
-          resolve(null);
+          finish(null);
         }
       });
     });

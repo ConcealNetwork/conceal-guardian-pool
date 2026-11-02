@@ -48,51 +48,83 @@ const parseIpv4 = (host) => {
   return octets;
 };
 
-// Parse a bracket-free, lowercase IPv6 literal into its 8 16-bit groups.
-// Supports '::' compression once and an embedded dotted-quad tail ('::ffff:1.2.3.4').
-const parseIpv6 = (host) => {
-  if (host.includes(':::')) {
-    return null;
+// One side of an IPv6 literal. A dotted quad is legal only as the final piece,
+// so it is allowed on the right of '::' and on an uncompressed address.
+const parseIpv6Side = (side, allowQuad) => {
+  if (side === '') {
+    return { groups: [], embedded: null };
   }
 
+  let groupsPart = side;
   let embedded = null;
-  let body = host;
-  const lastColon = host.lastIndexOf(':');
 
-  if (host.slice(lastColon + 1).includes('.')) {
-    const octets = parseIpv4(host.slice(lastColon + 1));
+  if (side.includes('.')) {
+    if (!allowQuad) {
+      return null;
+    }
+
+    const lastColon = side.lastIndexOf(':');
+    const quad = lastColon === -1 ? side : side.slice(lastColon + 1);
+    const octets = parseIpv4(quad);
 
     if (!octets) {
       return null;
     }
 
     embedded = [(octets[0] << 8) | octets[1], (octets[2] << 8) | octets[3]];
-    body = host.slice(0, lastColon);
+    groupsPart = lastColon === -1 ? '' : side.slice(0, lastColon);
   }
 
-  const halves = body.split('::');
+  const groups = groupsPart === '' ? [] : groupsPart.split(':');
+
+  if (!groups.every((group) => /^[0-9a-f]{1,4}$/.test(group))) {
+    return null;
+  }
+
+  return { groups, embedded };
+};
+
+// Parse a bracket-free, lowercase IPv6 literal into its 8 16-bit groups.
+// Supports '::' compression once and an embedded dotted-quad tail, including
+// a quad that sits directly against the compression ('64:ff9b::1.2.3.4').
+const parseIpv6 = (host) => {
+  if (host.includes(':::')) {
+    return null;
+  }
+
+  const halves = host.split('::');
 
   if (halves.length > 2) {
     return null;
   }
 
-  const head = halves[0] === '' ? [] : halves[0].split(':');
-  const tail = halves.length === 2 && halves[1] !== '' ? halves[1].split(':') : [];
+  const head = parseIpv6Side(halves[0], halves.length === 1);
 
-  if (
-    !head.every((group) => /^[0-9a-f]{1,4}$/.test(group)) ||
-    !tail.every((group) => /^[0-9a-f]{1,4}$/.test(group))
-  ) {
+  if (!head) {
     return null;
   }
 
-  const missing = 8 - head.length - tail.length - (embedded ? 2 : 0);
+  let tailGroups = [];
+  let embedded = head.embedded;
+
+  if (halves.length === 2) {
+    const tail = parseIpv6Side(halves[1], true);
+
+    if (!tail) {
+      return null;
+    }
+
+    tailGroups = tail.groups;
+    embedded = tail.embedded;
+  }
+
+  const missing = 8 - head.groups.length - tailGroups.length - (embedded ? 2 : 0);
 
   if (missing < 0 || (halves.length === 1 && missing !== 0)) {
     return null;
   }
 
-  const groups = [...head, ...Array(missing).fill('0'), ...tail].map((group) =>
+  const groups = [...head.groups, ...Array(missing).fill('0'), ...tailGroups].map((group) =>
     Number.parseInt(group, 16)
   );
 
@@ -218,8 +250,8 @@ const isHostAllowed = (host, options = {}) => {
   }
 
   // a numeric host must be a canonical dotted-quad; decimal, hex, octal and
-  // shortened IPv4 literals ('2130706433', '0x7f000001', '127.1') fail closed
-  if (/^[0-9.]+$/.test(normalized)) {
+  // shortened IPv4 literals ('2130706433', '0x7f000001', '0x7f.1', '127.1') fail closed
+  if (/^[0-9.]+$/.test(normalized) || /^0x[0-9a-f.]+$/i.test(normalized)) {
     const octets = parseIpv4(normalized);
 
     if (!octets) {
