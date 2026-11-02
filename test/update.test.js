@@ -381,10 +381,38 @@ describe('applyDaemonInfo', () => {
   });
 
   it('does not copy an invalid daemon fee_address', () => {
-    const data = { id: 'node-1', blockchain: { fee_address: sampleFeeAddress } };
+    const data = {
+      id: 'node-1',
+      blockchain: { height: probeHeight, fee_address: sampleFeeAddress },
+    };
 
-    assert.equal(applyDaemonInfo(data, { fee_address: 'ccx7short' }, nullLogger, probeNowMs), true);
+    assert.equal(
+      applyDaemonInfo(
+        data,
+        { height: probeHeight, fee_address: 'ccx7short' },
+        nullLogger,
+        probeNowMs
+      ),
+      true
+    );
     assert.equal(data.blockchain.fee_address, sampleFeeAddress);
+  });
+
+  it('rejects a daemon response that has no usable height', () => {
+    const data = { id: 'node-1', blockchain: { height: probeHeight, fee_address: '' } };
+
+    assert.equal(
+      applyDaemonInfo(data, { height: '', status: 'OK', version: '6.7.5' }, nullLogger, probeNowMs),
+      false
+    );
+    assert.equal(
+      applyDaemonInfo(data, { status: 'OK', version: '6.7.5' }, nullLogger, probeNowMs),
+      false
+    );
+
+    assert.equal(data.blockchain.height, probeHeight);
+    assert.equal(data.blockchain.status, undefined);
+    assert.equal(data.blockchain.version, undefined);
   });
 
   it('leaves the data untouched on a missing daemon response', () => {

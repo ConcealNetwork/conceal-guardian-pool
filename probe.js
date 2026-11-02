@@ -54,28 +54,31 @@ const applyDaemonInfo = (data, info, logger, nowMs = Date.now()) => {
 
   const daemonHeight = Number(info.height);
 
-  if (Number.isFinite(daemonHeight) && daemonHeight > 0) {
-    // a daemon height outside the accepted window is a fabricated tip
-    if (!isSubmittedHeightAccepted(daemonHeight, nowMs)) {
-      logger.warn(
-        `Node ${data.id} daemon reports height ${daemonHeight} outside the accepted window, rejecting the daemon response`
-      );
-      return false;
-    }
-
-    const claimedHeight = Number(data.blockchain.height);
-
-    if (
-      Number.isFinite(claimedHeight) &&
-      Math.abs(claimedHeight - daemonHeight) > heightTolerance
-    ) {
-      logger.warn(
-        `Node ${data.id} submitted height ${claimedHeight} but the daemon reports ${daemonHeight}, keeping the daemon value`
-      );
-    }
-
-    data.blockchain.height = daemonHeight;
+  // a reply with no positive height is not a daemon snapshot; copy nothing from it
+  if (!Number.isFinite(daemonHeight) || daemonHeight <= 0) {
+    logger.warn(
+      `Node ${data.id} daemon response has no usable height, rejecting the daemon response`
+    );
+    return false;
   }
+
+  // a daemon height outside the accepted window is a fabricated tip
+  if (!isSubmittedHeightAccepted(daemonHeight, nowMs)) {
+    logger.warn(
+      `Node ${data.id} daemon reports height ${daemonHeight} outside the accepted window, rejecting the daemon response`
+    );
+    return false;
+  }
+
+  const claimedHeight = Number(data.blockchain.height);
+
+  if (Number.isFinite(claimedHeight) && Math.abs(claimedHeight - daemonHeight) > heightTolerance) {
+    logger.warn(
+      `Node ${data.id} submitted height ${claimedHeight} but the daemon reports ${daemonHeight}, keeping the daemon value`
+    );
+  }
+
+  data.blockchain.height = daemonHeight;
 
   if (isValidFeeAddress(info.fee_address)) {
     if ((data.blockchain.fee_address || '') !== info.fee_address) {
