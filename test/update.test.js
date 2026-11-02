@@ -94,6 +94,11 @@ describe('validate', () => {
     assert.equal(isHostAllowed('0x7f.1'), false);
     assert.equal(isHostAllowed('0x7f.0.0.1'), false);
     assert.equal(isHostAllowed('0x10.1'), false);
+    assert.equal(isHostAllowed('10.0x1'), false);
+    assert.equal(isHostAllowed('0x7f.0x0.0x0.1'), false);
+    assert.equal(isHostAllowed('100.100.100.200'), false);
+    assert.equal(isHostAllowed('224.0.0.1'), false);
+    assert.equal(isHostAllowed('255.255.255.255'), false);
   });
 
   it('rejects trailing-dot and *.localhost hosts', () => {
@@ -113,6 +118,11 @@ describe('validate', () => {
     assert.equal(isHostAllowed('[::ffff:8.8.8.8]'), true);
     assert.equal(isHostAllowed('2606:4700::1111'), true);
     assert.equal(isHostAllowed('64:ff9b::1.2.3.4'), true);
+    assert.equal(isHostAllowed('64:ff9b::7f00:1'), false);
+    assert.equal(isHostAllowed('2002:7f00:1::'), false);
+    assert.equal(isHostAllowed('2002:808:808::'), true);
+    assert.equal(isHostAllowed('fec0::1'), false);
+    assert.equal(isHostAllowed('ff02::1'), false);
     assert.equal(isHostAllowed('2001:db8::101.102.103.104'), true);
     assert.equal(isHostAllowed('::8.8.8.8'), true);
     assert.equal(isHostAllowed('::127.0.0.1'), false);
@@ -131,6 +141,11 @@ describe('validate', () => {
     assert.equal(isAddressBlocked('fe80::1'), true);
     assert.equal(isAddressBlocked('fd12::1'), true);
     assert.equal(isAddressBlocked('::ffff:127.0.0.1'), true);
+    assert.equal(isAddressBlocked('100.64.1.1'), true);
+    assert.equal(isAddressBlocked('64:ff9b::7f00:1'), true);
+    assert.equal(isAddressBlocked('2002:a9fe:a9fe::'), true);
+    assert.equal(isAddressBlocked('fec0::1'), true);
+    assert.equal(isAddressBlocked('ff02::1'), true);
     assert.equal(isAddressBlocked('not-an-address'), true);
     assert.equal(isAddressBlocked(''), true);
     assert.equal(isAddressBlocked('203.0.113.10'), false);
@@ -325,7 +340,10 @@ describe('applyDaemonInfo', () => {
   it('keeps an in-window daemon height when the claim drifts by more than the tolerance', () => {
     const warnings = [];
     const logger = { warn: (msg) => warnings.push(msg) };
-    const data = { id: 'node-1', blockchain: { height: probeHeight - 10, fee_address: sampleFeeAddress } };
+    const data = {
+      id: 'node-1',
+      blockchain: { height: probeHeight - 10, fee_address: sampleFeeAddress },
+    };
 
     assert.equal(
       applyDaemonInfo(

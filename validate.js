@@ -138,17 +138,22 @@ const parseIpv6 = (host) => {
 const isBlockedIpv4 = (octets) => {
   const [a, b] = octets;
 
-  // 0.0.0.0/8 unspecified, 10.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16,
-  // 172.16.0.0/12, 192.168.0.0/16
+  // 0.0.0.0/8 unspecified, 10.0.0.0/8, 100.64.0.0/10 shared, 127.0.0.0/8,
+  // 169.254.0.0/16 link-local, 172.16.0.0/12, 192.168.0.0/16,
+  // 224.0.0.0/4 multicast and 240.0.0.0/4 reserved
   return (
     a === 0 ||
     a === 10 ||
     a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
     (a === 169 && b === 254) ||
     (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168)
+    (a === 192 && b === 168) ||
+    a >= 224
   );
 };
+
+const ipv4FromGroups = (high, low) => [high >> 8, high & 0xff, low >> 8, low & 0xff];
 
 const isLoopbackIpv6 = (groups) =>
   groups.slice(0, 7).every((group) => group === 0) && groups[7] === 1;
@@ -174,8 +179,27 @@ const isBlockedIpv6 = (groups) => {
     }
   }
 
-  // fe80::/10 link-local, fc00::/7 unique-local
-  return groups[0] >>> 6 === 0x3fa || groups[0] >>> 9 === 0x7e;
+  // 6to4 2002::/16 embeds IPv4 in groups 1 and 2
+  if (groups[0] === 0x2002) {
+    return isBlockedIpv4(ipv4FromGroups(groups[1], groups[2]));
+  }
+
+  // NAT64 well-known prefix 64:ff9b::/96 embeds IPv4 in the last 32 bits
+  if (
+    groups[0] === 0x64 &&
+    groups[1] === 0xff9b &&
+    groups.slice(2, 6).every((group) => group === 0)
+  ) {
+    return isBlockedIpv4(ipv4FromGroups(groups[6], groups[7]));
+  }
+
+  // fe80::/10 link-local, fec0::/10 site-local, fc00::/7 unique-local, ff00::/8 multicast
+  return (
+    groups[0] >>> 6 === 0x3fa ||
+    groups[0] >>> 6 === 0x3fb ||
+    groups[0] >>> 9 === 0x7e ||
+    groups[0] >>> 8 === 0xff
+  );
 };
 
 // classify an already-resolved address (probe-time pinning): true means the
@@ -250,8 +274,10 @@ const isHostAllowed = (host, options = {}) => {
   }
 
   // a numeric host must be a canonical dotted-quad; decimal, hex, octal and
-  // shortened IPv4 literals ('2130706433', '0x7f000001', '0x7f.1', '127.1') fail closed
-  if (/^[0-9.]+$/.test(normalized) || /^0x[0-9a-f.]+$/i.test(normalized)) {
+  // shortened IPv4 literals ('2130706433', '0x7f000001', '10.0x1', '127.1') fail closed
+  const hasHexLabel = normalized.split('.').some((label) => /^0x[0-9a-f]+$/i.test(label));
+
+  if (/^[0-9.]+$/.test(normalized) || hasHexLabel) {
     const octets = parseIpv4(normalized);
 
     if (!octets) {
