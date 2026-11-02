@@ -177,6 +177,18 @@ const isBlockedIpv6 = (groups) => {
     ) {
       return isBlockedIpv4([groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff]);
     }
+
+    // IPv4-translated (SIIT) form ::ffff:0:a.b.c.d: 0xffff at group 4 — judged by
+    // the embedded IPv4 ranges, symmetric with the mapped form above
+    if (
+      groups[1] === 0 &&
+      groups[2] === 0 &&
+      groups[3] === 0 &&
+      groups[4] === 0xffff &&
+      groups[5] === 0
+    ) {
+      return isBlockedIpv4([groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff]);
+    }
   }
 
   // 6to4 2002::/16 embeds IPv4 in groups 1 and 2
