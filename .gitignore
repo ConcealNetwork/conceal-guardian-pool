@@ -90,3 +90,10 @@ specs/changes/*
 !specs/changes/archive/
 !specs/changes/archive/**
 openspec/
+
+# repo-kit py-indexer
+.repo-kit/tools/py-indexer/index/
+.repo-kit/tools/py-indexer/.venv/
+.repo-kit/tools/py-indexer/**/__pycache__/
+.repo-kit/tools/py-indexer/**/*.py[cod]
+.repo-kit/tools/py-indexer/repos.json

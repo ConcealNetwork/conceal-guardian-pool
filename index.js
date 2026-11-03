@@ -12,6 +12,8 @@ const moment = require('moment');
 const utils = require('./utils.js');
 const { sanitizeNodeUpdate } = require('./sanitize.js');
 const { probeNode } = require('./probe.js');
+const { nextAnchor } = require('./seed-anchor.js');
+const { sampleSeeds } = require('./seed-sample.js');
 const {
   applyListingUpdate,
   listingKey,
@@ -27,6 +29,9 @@ const path = require('node:path');
 
 // query api timeout
 const apiTimeout = 3000;
+
+let seedAnchor = null;
+const seedAddressPins = new Map();
 
 // message base for winston logging
 const MESSAGE = Symbol.for('message');
@@ -63,6 +68,36 @@ const logger = winston.createLogger({
   ],
   format: winston.format(logFormatter)(),
 });
+
+const refreshSeedAnchor = () => {
+  if (!Array.isArray(config.seeds) || config.seeds.length === 0) {
+    logger.warn('No seeds configured; the default synced set will stay empty');
+    return;
+  }
+
+  sampleSeeds(config.seeds, apiTimeout, seedAddressPins)
+    .then((replies) => {
+      const previous = seedAnchor;
+      const now = Date.now();
+
+      seedAnchor = nextAnchor(previous, replies, now);
+
+      if (
+        seedAnchor &&
+        (!previous || previous.height !== seedAnchor.height || previous.hash !== seedAnchor.hash)
+      ) {
+        logger.info('Published seed anchor', {
+          height: seedAnchor.height,
+          hash: seedAnchor.hash,
+        });
+      } else if (!seedAnchor && previous) {
+        logger.warn('Seed anchor expired');
+      }
+    })
+    .catch((error) => {
+      logger.error('Seed anchor refresh failed', { message: error.message });
+    });
+};
 
 // update node data limiter
 const updateNodeLimiter = rateLimit({
@@ -172,7 +207,11 @@ function filterResults(req, values) {
     return isAppropriate;
   });
 
-  return syncedNodes(filteredValues, isSyncedOnly);
+  return syncedNodes(
+    filteredValues,
+    isSyncedOnly,
+    seedAnchor && Number.isInteger(seedAnchor.height) ? seedAnchor.height : null
+  );
 }
 
 function setNodeData(data, callback) {
@@ -335,3 +374,5 @@ app.get('/pool/stats', publicGetCors, listNodesLimiter, (_req, res) => {
 
 // set the interval for the uptime check of all nodes
 setInterval(checkNodesUptimeStatus, config.uptime.period * 1000);
+refreshSeedAnchor();
+setInterval(refreshSeedAnchor, config.uptime.period * 1000);

@@ -75,34 +75,14 @@ const applyListingUpdate = ({ data, existing, reachable, occupantId }) => {
   return result;
 };
 
-const reachableMajorityHeight = (values) => {
-  const counts = {};
-  let majority = 0;
-  let majorityCount = 0;
-
-  for (const value of values) {
-    if (value.status?.isReachable !== true) {
-      continue;
-    }
-
-    const height = value.blockchain ? value.blockchain.height : 0;
-    counts[height] = (counts[height] || 0) + 1;
-
-    if (counts[height] > majorityCount) {
-      majorityCount = counts[height];
-      majority = height;
-    }
-  }
-
-  return majority;
-};
-
-const syncedNodes = (values, isSyncedOnly) => {
+const syncedNodes = (values, isSyncedOnly, anchorHeight) => {
   if (!isSyncedOnly) {
     return values;
   }
 
-  const majority = reachableMajorityHeight(values);
+  if (!Number.isInteger(anchorHeight)) {
+    return [];
+  }
 
   return values.filter((value) => {
     if (value.status?.isReachable !== true) {
@@ -111,7 +91,7 @@ const syncedNodes = (values, isSyncedOnly) => {
 
     const height = value.blockchain ? value.blockchain.height : 0;
 
-    return height >= majority - 2;
+    return height >= anchorHeight - 2;
   });
 };
 
@@ -122,6 +102,5 @@ module.exports = {
   occupantIdForKey,
   preserveProbedChain,
   probeSkipMs,
-  reachableMajorityHeight,
   syncedNodes,
 };

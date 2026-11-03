@@ -8,7 +8,6 @@ const {
   occupantIdForKey,
   preserveProbedChain,
   probeSkipMs,
-  reachableMajorityHeight,
   syncedNodes,
 } = require('../listing-policy');
 
@@ -215,21 +214,25 @@ describe('preserveProbedChain', () => {
 });
 
 describe('synced filter', () => {
-  it('computes majority height from reachable rows only', () => {
+  it('keeps reachable rows at or above the seed anchor minus 2', () => {
     const rows = [
       { status: { isReachable: true }, blockchain: { height: 2159003 } },
-      { status: { isReachable: true }, blockchain: { height: 2159003 } },
-      { status: { isReachable: false }, blockchain: { height: 2159103 } },
+      { status: { isReachable: true }, blockchain: { height: 2159001 } },
+      { status: { isReachable: true }, blockchain: { height: 2159000 } },
+      { status: { isReachable: true }, blockchain: { height: 2159103 } },
+      { status: { isReachable: false }, blockchain: { height: 2159003 } },
     ];
 
-    const majority = reachableMajorityHeight(rows);
-    const reachable = rows.filter((row) => row.status.isReachable);
-    const expected = reachable[0].blockchain.height;
-
-    assert.equal(majority, expected);
     assert.deepEqual(
-      syncedNodes(rows, true).map((row) => row.blockchain.height),
-      [expected, expected]
+      syncedNodes(rows, true, 2159003).map((row) => row.blockchain.height),
+      [2159003, 2159001, 2159103]
     );
+  });
+
+  it('returns no synced rows when the seed anchor is missing', () => {
+    const rows = [{ status: { isReachable: true }, blockchain: { height: 2159003 } }];
+
+    assert.deepEqual(syncedNodes(rows, true, null), []);
+    assert.deepEqual(syncedNodes(rows, false, null), rows);
   });
 });

@@ -35,7 +35,7 @@ The pool also has an "inactive cleanup feature". If a node does not send data fo
 /pool/list?hasSSL=true
 ```
 
-**isSynced**: Only nodes the pool reached (`getinfo` ok) whose height is within 2 of the reachable majority. Default is **on** (omit the query or `isSynced=true`). Use `isSynced=false` to include syncing or unreachable rows that are still in cache.
+**isSynced**: Only nodes the pool reached (`getinfo` ok) whose height is at least the seed anchor minus 2. The anchor is the median `getinfo` height of the official seeds when at least three of those replies sit on that height and share one `top_block_hash`. Each seed is reached by resolving its name. The last resolved address is kept in memory and used only when that name fails to resolve. Default is **on** (omit the query or `isSynced=true`). With no anchor, the synced set is empty. Use `isSynced=false` to include syncing or unreachable rows that are still in cache.
 
 ```
 /pool/random?isSynced=true
