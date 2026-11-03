@@ -11,5 +11,13 @@
 	},
 	"probe": {
 		"skipSeconds": 240
-	}
+	},
+	"seeds": [
+		{ "host": "seed1.conceal.network", "port": 16000 },
+		{ "host": "seed2.conceal.network", "port": 16000 },
+		{ "host": "seed3.conceal.network", "port": 16000 },
+		{ "host": "seed4.conceal.network", "port": 16000 },
+		{ "host": "seed5.conceal.network", "port": 16000 },
+		{ "host": "seed6.conceal.network", "port": 16000 }
+	]
 }
