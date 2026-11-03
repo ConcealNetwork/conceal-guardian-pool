@@ -200,25 +200,34 @@ describe('sampleSeed', () => {
     }
   });
 
-  it('samples each host and port once', async () => {
-    const seen = [];
-    const replies = await sampleSeeds(
-      [
-        { host: 'seed1.conceal.network', port: 16000 },
-        { host: 'Seed1.conceal.network', port: 16000 },
-        { host: 'seed1.conceal.network', port: 16001 },
-        { host: 'not a host', port: 16000 },
-      ],
-      1000,
-      new Map(),
-      (host) => {
-        seen.push(host);
-        return null;
-      }
-    );
+  it('keeps the first seed when two names resolve to the same address and port', async () => {
+    let hits = 0;
+    const server = http.createServer((_request, response) => {
+      hits += 1;
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ status: 'OK', height: heightAnchor, top_block_hash: hash }));
+    });
 
-    assert.deepEqual(seen, ['seed1.conceal.network', 'seed1.conceal.network']);
-    assert.equal(replies.length, 2);
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
+
+    try {
+      const replies = await sampleSeeds(
+        [
+          { host: 'seed1.conceal.network', port },
+          { host: 'seed2.conceal.network', port },
+        ],
+        1000,
+        new Map(),
+        () => '127.0.0.1'
+      );
+
+      assert.equal(hits, 1);
+      assert.equal(replies[0].height, heightAnchor);
+      assert.equal(replies[1], null);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
   });
 
   it('returns null when the name fails and nothing is remembered', async () => {

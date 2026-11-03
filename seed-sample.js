@@ -106,9 +106,9 @@ const fetchSeedInfo = (host, address, port, timeoutMs) =>
     request.end();
   });
 
-// Prefer the current DNS answer and remember it. Dial the remembered address
+// Prefer the current DNS answer and remember it. The remembered address is used
 // only when this round cannot resolve the name.
-const sampleSeed = (seed, timeoutMs, pins, resolveAddress = resolveSeedAddress) => {
+const resolveSeedTarget = (seed, pins, resolveAddress) => {
   if (!isSeed(seed)) {
     return Promise.resolve(null);
   }
@@ -124,29 +124,41 @@ const sampleSeed = (seed, timeoutMs, pins, resolveAddress = resolveSeedAddress) 
       rememberAddress(pins, seed.host, resolved);
     }
 
-    return fetchSeedInfo(seed.host, address, seed.port, timeoutMs);
+    return { host: seed.host, address, port: Number(seed.port) };
   });
 };
 
-const sampleSeeds = (seeds, timeoutMs, pins, resolveAddress) => {
+const sampleSeed = (seed, timeoutMs, pins, resolveAddress = resolveSeedAddress) =>
+  resolveSeedTarget(seed, pins, resolveAddress).then((target) =>
+    target ? fetchSeedInfo(target.host, target.address, target.port, timeoutMs) : null
+  );
+
+// One reply per address and port. The first seed in the list keeps that slot.
+const sampleSeeds = (seeds, timeoutMs, pins, resolveAddress = resolveSeedAddress) => {
   const list = Array.isArray(seeds) ? seeds : [];
-  const seen = new Set();
-  const unique = list.filter((seed) => {
-    if (!isSeed(seed)) {
-      return false;
+
+  return Promise.all(list.map((seed) => resolveSeedTarget(seed, pins, resolveAddress))).then(
+    (targets) => {
+      const seen = new Set();
+
+      return Promise.all(
+        targets.map((target) => {
+          if (!target) {
+            return null;
+          }
+
+          const key = `${target.address}|${target.port}`;
+
+          if (seen.has(key)) {
+            return null;
+          }
+
+          seen.add(key);
+          return fetchSeedInfo(target.host, target.address, target.port, timeoutMs);
+        })
+      );
     }
-
-    const key = `${seed.host.toLowerCase()}:${Number(seed.port)}`;
-
-    if (seen.has(key)) {
-      return false;
-    }
-
-    seen.add(key);
-    return true;
-  });
-
-  return Promise.all(unique.map((seed) => sampleSeed(seed, timeoutMs, pins, resolveAddress)));
+  );
 };
 
 module.exports = { isSeed, resolveSeedAddress, sampleSeed, sampleSeeds };
