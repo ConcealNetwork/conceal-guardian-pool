@@ -21,12 +21,10 @@
   "license": "MIT",
   "dependencies": {
     "app-root-path": "^3.0.0",
-    "conceal-api": "^0.8.5",
     "config": "^3.3.7",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
-    "follow-redirects": "^1.16.2",
     "moment": "^2.29.1",
     "node-cache": "^5.1.2",
     "winston": "^3.19.0"

@@ -14,6 +14,7 @@ const { sanitizeNodeUpdate } = require('./sanitize.js');
 const { probeNode } = require('./probe.js');
 const { anchorHoldMs, nextAnchor } = require('./seed-anchor.js');
 const { sampleSeeds } = require('./seed-sample.js');
+const { cacheMaxKeys, storeListing } = require('./listing-cache.js');
 const {
   applyListingUpdate,
   listingKey,
@@ -160,7 +161,8 @@ const listNodesLimiter = rateLimit({
 const nodeCache = new NodeCache({
   stdTTL: config.cache.expire,
   checkperiod: config.cache.checkPeriod,
-}); // the cache object
+  maxKeys: cacheMaxKeys,
+});
 const storage = new database(); // create a new storage instance
 const app = express(); // create express app
 app.disable('x-powered-by');
@@ -283,7 +285,16 @@ function setNodeData(data, callback) {
           nodeCache.del(result.evictId);
         }
 
-        callback(nodeCache.set(result.store.id, result.store, config.cache.expire));
+        callback(
+          storeListing(
+            nodeCache,
+            result.store.id,
+            result.store,
+            config.cache.expire,
+            cacheMaxKeys,
+            logger
+          )
+        );
       };
 
       if (mustProbe(nodeData, data, updateCache[data.id])) {
