@@ -12,7 +12,7 @@ const moment = require('moment');
 const utils = require('./utils.js');
 const { sanitizeNodeUpdate } = require('./sanitize.js');
 const { probeNode } = require('./probe.js');
-const { nextAnchor } = require('./seed-anchor.js');
+const { anchorHoldMs, nextAnchor } = require('./seed-anchor.js');
 const { sampleSeeds } = require('./seed-sample.js');
 const {
   applyListingUpdate,
@@ -31,7 +31,11 @@ const path = require('node:path');
 const apiTimeout = 3000;
 
 let seedAnchor = null;
+let seedRefreshInFlight = false;
 const seedAddressPins = new Map();
+
+// Hold duration follows this clock. A wall-clock step must not expire the anchor.
+const monotonicNowMs = () => Number(process.hrtime.bigint() / 1_000_000n);
 
 // message base for winston logging
 const MESSAGE = Symbol.for('message');
@@ -75,12 +79,37 @@ const refreshSeedAnchor = () => {
     return;
   }
 
-  sampleSeeds(config.seeds, apiTimeout, seedAddressPins)
-    .then((replies) => {
-      const previous = seedAnchor;
-      const now = Date.now();
+  if (seedRefreshInFlight) {
+    logger.warn('Seed anchor refresh still running');
+    return;
+  }
 
-      seedAnchor = nextAnchor(previous, replies, now);
+  seedRefreshInFlight = true;
+  sampleSeeds(config.seeds, apiTimeout, seedAddressPins)
+    .then(({ replies, rememberedHosts, lookupFailures, blockedHosts, droppedHosts }) => {
+      if (lookupFailures.length > 0) {
+        logger.warn('Seed lookup failed', { hosts: lookupFailures });
+      }
+
+      if (blockedHosts.length > 0) {
+        logger.warn('Seed address blocked', { hosts: blockedHosts });
+      }
+
+      if (rememberedHosts.length > 0) {
+        logger.warn('Seed name did not resolve; using the remembered address', {
+          hosts: rememberedHosts,
+        });
+      }
+
+      if (droppedHosts.length > 0) {
+        logger.warn('Seed dropped because the address and port were already sampled', {
+          hosts: droppedHosts,
+        });
+      }
+
+      const previous = seedAnchor;
+
+      seedAnchor = nextAnchor(previous, replies, Date.now(), anchorHoldMs, monotonicNowMs());
 
       if (
         seedAnchor &&
@@ -96,6 +125,9 @@ const refreshSeedAnchor = () => {
     })
     .catch((error) => {
       logger.error('Seed anchor refresh failed', { message: error.message });
+    })
+    .finally(() => {
+      seedRefreshInFlight = false;
     });
 };
 

@@ -31,16 +31,16 @@ const resolveSeedAddress = (host, lookup = dns.lookup) =>
   new Promise((resolve) => {
     lookup(host, { all: true, verbatim: true }, (error, addresses) => {
       if (error || !Array.isArray(addresses) || addresses.length === 0) {
-        resolve(null);
+        resolve({ address: null, reason: 'lookup' });
         return;
       }
 
       if (addresses.some((entry) => isAddressBlocked(entry.address))) {
-        resolve(null);
+        resolve({ address: null, reason: 'blocked' });
         return;
       }
 
-      resolve(addresses[0].address);
+      resolve({ address: addresses[0].address, reason: null });
     });
   });
 
@@ -106,6 +106,27 @@ const fetchSeedInfo = (host, address, port, timeoutMs) =>
     request.end();
   });
 
+// A string is a fresh address. null is a failed lookup. The default resolver
+// returns { address, reason } so a blocked answer stays distinct from a lookup error.
+const asResolution = (resolved) => {
+  if (resolved && typeof resolved === 'object' && Object.hasOwn(resolved, 'address')) {
+    return {
+      address:
+        typeof resolved.address === 'string' && resolved.address.length > 0
+          ? resolved.address
+          : null,
+      reason:
+        resolved.reason === 'blocked' || resolved.reason === 'lookup' ? resolved.reason : null,
+    };
+  }
+
+  if (typeof resolved === 'string' && resolved.length > 0) {
+    return { address: resolved, reason: null };
+  }
+
+  return { address: null, reason: 'lookup' };
+};
+
 // Prefer the current DNS answer and remember it. The remembered address is used
 // only when this round cannot resolve the name.
 const resolveSeedTarget = (seed, pins, resolveAddress) => {
@@ -114,23 +135,30 @@ const resolveSeedTarget = (seed, pins, resolveAddress) => {
   }
 
   return Promise.resolve(resolveAddress(seed.host)).then((resolved) => {
-    const address = resolved || cachedAddress(pins, seed.host);
+    const outcome = asResolution(resolved);
+    const address = outcome.address || cachedAddress(pins, seed.host);
 
     if (!address) {
-      return null;
+      return { host: seed.host, address: null, reason: outcome.reason };
     }
 
-    if (resolved) {
-      rememberAddress(pins, seed.host, resolved);
+    if (outcome.address) {
+      rememberAddress(pins, seed.host, outcome.address);
     }
 
-    return { host: seed.host, address, port: Number(seed.port) };
+    return {
+      host: seed.host,
+      address,
+      port: Number(seed.port),
+      remembered: !outcome.address,
+      reason: outcome.address ? null : outcome.reason,
+    };
   });
 };
 
 const sampleSeed = (seed, timeoutMs, pins, resolveAddress = resolveSeedAddress) =>
   resolveSeedTarget(seed, pins, resolveAddress).then((target) =>
-    target ? fetchSeedInfo(target.host, target.address, target.port, timeoutMs) : null
+    target?.address ? fetchSeedInfo(target.host, target.address, target.port, timeoutMs) : null
   );
 
 // One reply per address and port. The first seed in the list keeps that slot.
@@ -140,16 +168,37 @@ const sampleSeeds = (seeds, timeoutMs, pins, resolveAddress = resolveSeedAddress
   return Promise.all(list.map((seed) => resolveSeedTarget(seed, pins, resolveAddress))).then(
     (targets) => {
       const seen = new Set();
+      const rememberedHosts = [];
+      const lookupFailures = [];
+      const blockedHosts = [];
+      const droppedHosts = [];
 
-      return Promise.all(
+      const replies = Promise.all(
         targets.map((target) => {
-          if (!target) {
+          if (!target?.address) {
+            if (target?.reason === 'blocked') {
+              blockedHosts.push(target.host);
+            } else if (target?.reason === 'lookup') {
+              lookupFailures.push(target.host);
+            }
+
             return null;
+          }
+
+          if (target.reason === 'blocked') {
+            blockedHosts.push(target.host);
+          } else if (target.reason === 'lookup') {
+            lookupFailures.push(target.host);
+          }
+
+          if (target.remembered) {
+            rememberedHosts.push(target.host);
           }
 
           const key = `${target.address}|${target.port}`;
 
           if (seen.has(key)) {
+            droppedHosts.push(target.host);
             return null;
           }
 
@@ -157,6 +206,14 @@ const sampleSeeds = (seeds, timeoutMs, pins, resolveAddress = resolveSeedAddress
           return fetchSeedInfo(target.host, target.address, target.port, timeoutMs);
         })
       );
+
+      return replies.then((resolvedReplies) => ({
+        replies: resolvedReplies,
+        rememberedHosts,
+        lookupFailures,
+        blockedHosts,
+        droppedHosts,
+      }));
     }
   );
 };

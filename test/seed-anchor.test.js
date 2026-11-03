@@ -109,6 +109,12 @@ describe('nextAnchor', () => {
   it('clears the anchor when the hold has elapsed', () => {
     assert.equal(nextAnchor(published, [], now + anchorHoldMs), null);
   });
+
+  it('keeps the anchor when the wall clock jumps and the hold clock has not', () => {
+    const held = nextAnchor(published, [], now + anchorHoldMs + 60_000, anchorHoldMs, now + 1);
+
+    assert.equal(held, published);
+  });
 });
 
 describe('resolveSeedAddress', () => {
@@ -124,7 +130,7 @@ describe('resolveSeedAddress', () => {
       lookup([{ address: '203.0.113.10', family: 4 }])
     );
 
-    assert.equal(address, '203.0.113.10');
+    assert.deepEqual(address, { address: '203.0.113.10', reason: null });
   });
 
   it('rejects a set that contains a blocked address', async () => {
@@ -136,7 +142,7 @@ describe('resolveSeedAddress', () => {
       ])
     );
 
-    assert.equal(address, null);
+    assert.deepEqual(address, { address: null, reason: 'blocked' });
   });
 
   it('returns null when lookup fails', async () => {
@@ -145,7 +151,7 @@ describe('resolveSeedAddress', () => {
       lookup(null, new Error('ENOTFOUND'))
     );
 
-    assert.equal(address, null);
+    assert.deepEqual(address, { address: null, reason: 'lookup' });
   });
 });
 
@@ -212,7 +218,7 @@ describe('sampleSeed', () => {
     const { port } = server.address();
 
     try {
-      const replies = await sampleSeeds(
+      const { replies, rememberedHosts, droppedHosts } = await sampleSeeds(
         [
           { host: 'seed1.conceal.network', port },
           { host: 'seed2.conceal.network', port },
@@ -225,6 +231,49 @@ describe('sampleSeed', () => {
       assert.equal(hits, 1);
       assert.equal(replies[0].height, heightAnchor);
       assert.equal(replies[1], null);
+      assert.deepEqual(rememberedHosts, []);
+      assert.deepEqual(droppedHosts, ['seed2.conceal.network']);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it('reports a blocked answer and a failed lookup', async () => {
+    const { replies, blockedHosts, lookupFailures } = await sampleSeeds(
+      [
+        { host: 'seed1.conceal.network', port: 16000 },
+        { host: 'seed2.conceal.network', port: 16000 },
+      ],
+      1000,
+      new Map(),
+      (host) =>
+        host.startsWith('seed1')
+          ? { address: null, reason: 'blocked' }
+          : { address: null, reason: 'lookup' }
+    );
+
+    assert.deepEqual(replies, [null, null]);
+    assert.deepEqual(blockedHosts, ['seed1.conceal.network']);
+    assert.deepEqual(lookupFailures, ['seed2.conceal.network']);
+  });
+
+  it('names the seed that used a remembered address', async () => {
+    const server = http.createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ status: 'OK', height: heightAnchor, top_block_hash: hash }));
+    });
+
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+    try {
+      const { rememberedHosts } = await sampleSeeds(
+        [{ host: 'seed1.conceal.network', port: server.address().port }],
+        1000,
+        new Map([['seed1.conceal.network', '127.0.0.1']]),
+        () => null
+      );
+
+      assert.deepEqual(rememberedHosts, ['seed1.conceal.network']);
     } finally {
       await new Promise((resolve) => server.close(resolve));
     }

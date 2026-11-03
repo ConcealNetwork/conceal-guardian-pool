@@ -71,15 +71,24 @@ const publishAnchor = (replies, nowMs = Date.now()) => {
   return { height, hash };
 };
 
-// A failed round keeps the previous anchor until it is 15 minutes old.
-const nextAnchor = (previous, replies, nowMs = Date.now(), holdMs = anchorHoldMs) => {
+// A failed round keeps the previous anchor until the hold elapses. nowMs is the
+// wall clock for the height window. elapsedMs is the hold clock, so a wall-clock
+// step does not expire or extend the anchor. Callers that pass one clock for
+// both leave elapsedMs unset.
+const nextAnchor = (
+  previous,
+  replies,
+  nowMs = Date.now(),
+  holdMs = anchorHoldMs,
+  elapsedMs = nowMs
+) => {
   const published = publishAnchor(replies, nowMs);
 
   if (published) {
-    return { height: published.height, hash: published.hash, at: nowMs };
+    return { height: published.height, hash: published.hash, at: elapsedMs };
   }
 
-  if (previous && Number.isInteger(previous.at) && nowMs - previous.at < holdMs) {
+  if (previous && Number.isInteger(previous.at) && elapsedMs - previous.at < holdMs) {
     return previous;
   }
 
