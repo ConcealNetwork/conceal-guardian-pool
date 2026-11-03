@@ -158,7 +158,7 @@ const resolveSeedTarget = (seed, pins, resolveAddress) => {
 
 const sampleSeed = (seed, timeoutMs, pins, resolveAddress = resolveSeedAddress) =>
   resolveSeedTarget(seed, pins, resolveAddress).then((target) =>
-    target ? fetchSeedInfo(target.host, target.address, target.port, timeoutMs) : null
+    target?.address ? fetchSeedInfo(target.host, target.address, target.port, timeoutMs) : null
   );
 
 // One reply per address and port. The first seed in the list keeps that slot.
