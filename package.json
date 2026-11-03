@@ -21,7 +21,6 @@
   "license": "MIT",
   "dependencies": {
     "app-root-path": "^3.0.0",
-    "conceal-api": "^0.8.5",
     "config": "^3.3.7",
     "cors": "^2.8.6",
     "express": "^5.2.1",
