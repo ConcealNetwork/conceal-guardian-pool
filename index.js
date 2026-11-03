@@ -14,6 +14,7 @@ const { sanitizeNodeUpdate } = require('./sanitize.js');
 const { probeNode } = require('./probe.js');
 const { anchorHoldMs, nextAnchor } = require('./seed-anchor.js');
 const { sampleSeeds } = require('./seed-sample.js');
+const { cacheMaxKeys, storeListing } = require('./listing-cache.js');
 const {
   applyListingUpdate,
   listingKey,
@@ -157,32 +158,11 @@ const listNodesLimiter = rateLimit({
   },
 });
 
-const cacheMaxKeys = 500;
-
 const nodeCache = new NodeCache({
   stdTTL: config.cache.expire,
   checkperiod: config.cache.checkPeriod,
   maxKeys: cacheMaxKeys,
 });
-
-// node-cache rejects set() once the key count is at the cap, including a refresh
-// of a key that is already stored. Drop that slot first so the refresh can land.
-const storeListing = (id, record) => {
-  if (nodeCache.getStats().keys >= cacheMaxKeys && nodeCache.has(id)) {
-    nodeCache.del(id);
-  }
-
-  try {
-    return nodeCache.set(id, record, config.cache.expire);
-  } catch (error) {
-    if (error?.errorcode === 'ECACHEFULL') {
-      logger.warn('Rejected a listing because the node cache is full', { nodeId: id });
-      return false;
-    }
-
-    throw error;
-  }
-};
 const storage = new database(); // create a new storage instance
 const app = express(); // create express app
 app.disable('x-powered-by');
@@ -305,7 +285,16 @@ function setNodeData(data, callback) {
           nodeCache.del(result.evictId);
         }
 
-        callback(storeListing(result.store.id, result.store));
+        callback(
+          storeListing(
+            nodeCache,
+            result.store.id,
+            result.store,
+            config.cache.expire,
+            cacheMaxKeys,
+            logger
+          )
+        );
       };
 
       if (mustProbe(nodeData, data, updateCache[data.id])) {

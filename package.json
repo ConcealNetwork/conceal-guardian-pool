@@ -25,7 +25,6 @@
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
-    "follow-redirects": "^1.16.2",
     "moment": "^2.29.1",
     "node-cache": "^5.1.2",
     "winston": "^3.19.0"
