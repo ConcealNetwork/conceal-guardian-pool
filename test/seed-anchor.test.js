@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 
 const { anchorHoldMs, nextAnchor, publishAnchor } = require('../seed-anchor');
-const { resolveSeedAddress, sampleSeed } = require('../seed-sample');
+const { resolveSeedAddress, sampleSeed, sampleSeeds } = require('../seed-sample');
 const { heightAnchor, heightAnchorMs, heightWeekBlocks } = require('../validate');
 
 const hash = 'a'.repeat(64);
@@ -198,6 +198,27 @@ describe('sampleSeed', () => {
     } finally {
       await new Promise((resolve) => server.close(resolve));
     }
+  });
+
+  it('samples each host and port once', async () => {
+    const seen = [];
+    const replies = await sampleSeeds(
+      [
+        { host: 'seed1.conceal.network', port: 16000 },
+        { host: 'Seed1.conceal.network', port: 16000 },
+        { host: 'seed1.conceal.network', port: 16001 },
+        { host: 'not a host', port: 16000 },
+      ],
+      1000,
+      new Map(),
+      (host) => {
+        seen.push(host);
+        return null;
+      }
+    );
+
+    assert.deepEqual(seen, ['seed1.conceal.network', 'seed1.conceal.network']);
+    assert.equal(replies.length, 2);
   });
 
   it('returns null when the name fails and nothing is remembered', async () => {

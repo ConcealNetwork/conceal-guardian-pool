@@ -70,6 +70,11 @@ const logger = winston.createLogger({
 });
 
 const refreshSeedAnchor = () => {
+  if (!Array.isArray(config.seeds) || config.seeds.length === 0) {
+    logger.warn('No seeds configured; the default synced set will stay empty');
+    return;
+  }
+
   sampleSeeds(config.seeds, apiTimeout, seedAddressPins)
     .then((replies) => {
       const previous = seedAnchor;

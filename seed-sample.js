@@ -128,10 +128,25 @@ const sampleSeed = (seed, timeoutMs, pins, resolveAddress = resolveSeedAddress) 
   });
 };
 
-const sampleSeeds = (seeds, timeoutMs, pins) => {
+const sampleSeeds = (seeds, timeoutMs, pins, resolveAddress) => {
   const list = Array.isArray(seeds) ? seeds : [];
+  const seen = new Set();
+  const unique = list.filter((seed) => {
+    if (!isSeed(seed)) {
+      return false;
+    }
 
-  return Promise.all(list.map((seed) => sampleSeed(seed, timeoutMs, pins)));
+    const key = `${seed.host.toLowerCase()}:${Number(seed.port)}`;
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+
+  return Promise.all(unique.map((seed) => sampleSeed(seed, timeoutMs, pins, resolveAddress)));
 };
 
 module.exports = { isSeed, resolveSeedAddress, sampleSeed, sampleSeeds };
