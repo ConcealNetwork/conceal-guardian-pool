@@ -12,6 +12,12 @@
 	"probe": {
 		"skipSeconds": 240
 	},
+	"updateAuth": {
+		"requireSigned": false,
+		"maxSkewSeconds": 300,
+		"maxListingsPerKey": 8,
+		"anonymousListingCap": 450
+	},
 	"seeds": [
 		{ "host": "seed1.conceal.network", "port": 16000 },
 		{ "host": "seed2.conceal.network", "port": 16000 },

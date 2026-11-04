@@ -25,6 +25,12 @@ const {
 } = require('./listing-policy.js');
 const { toPublicNode, toPublicUptime, resolvePrivateId } = require('./public-id.js');
 const { publicGetCors, concealWriteCors } = require('./middleware-cors.js');
+const {
+  identityAllowsNewListing,
+  ownershipAllowsEviction,
+  ownershipAllowsUpdate,
+  verifySubmitAuth,
+} = require('./submit-auth.js');
 const crypto = require('node:crypto');
 const path = require('node:path');
 
@@ -158,6 +164,19 @@ const listNodesLimiter = rateLimit({
   },
 });
 
+// proof-of-ownership policy for /pool/update: ed25519 submissions are preferred,
+// unsigned ones stay accepted until requireSigned flips the hard cutover
+const updateAuthConfig = config.updateAuth || {};
+const requireSignedSubmissions = updateAuthConfig.requireSigned === true;
+const authMaxSkewMs = (updateAuthConfig.maxSkewSeconds ?? 300) * 1000;
+const maxListingsPerKey = updateAuthConfig.maxListingsPerKey ?? 8;
+const anonymousListingCap = updateAuthConfig.anonymousListingCap ?? 450;
+
+// RAM-only registry binding verified node ids to their ed25519 public key.
+// Never persisted to the database: a restart forgets ownership until owners
+// re-submit a signed update.
+const verifiedIdentities = new Map();
+
 const nodeCache = new NodeCache({
   stdTTL: config.cache.expire,
   checkperiod: config.cache.checkPeriod,
@@ -205,6 +224,12 @@ function getAllNodes(keys) {
   return nodeList;
 }
 
+// unsigned listings occupy a bounded budget of the cache so verified identities
+// can always find a slot (SG-010 starvation guard)
+function countAnonymousListings() {
+  return getAllNodes(nodeCache.keys()).filter((row) => !verifiedIdentities.has(row.id)).length;
+}
+
 function filterResults(req, values) {
   let isSyncedOnly = true;
 
@@ -248,7 +273,39 @@ function filterResults(req, values) {
   );
 }
 
-function setNodeData(data, callback) {
+function setNodeData(data, auth, callback) {
+  const verified = auth?.verified === true;
+  const publicKey = auth?.publicKey;
+
+  if (!ownershipAllowsUpdate({ registry: verifiedIdentities, id: data.id, verified, publicKey })) {
+    logger.warn(`Rejected node ${data.id} update without proof of ownership`);
+    callback(false);
+    return;
+  }
+
+  if (!nodeCache.has(data.id)) {
+    if (
+      verified &&
+      !identityAllowsNewListing({
+        registry: verifiedIdentities,
+        id: data.id,
+        publicKey,
+        maxListingsPerKey,
+        registryCap: cacheMaxKeys,
+      })
+    ) {
+      logger.warn(`Rejected node ${data.id} listing over the per-identity or registry bound`);
+      callback(false);
+      return;
+    }
+
+    if (!verified && countAnonymousListings() >= anonymousListingCap) {
+      logger.warn('Rejected a new unsigned listing because the anonymous listing budget is full');
+      callback(false);
+      return;
+    }
+  }
+
   storage.getClientUptime(
     { id: [data.id], year: [moment().year()], month: [moment().month() + 1] },
     (resultData) => {
@@ -281,20 +338,38 @@ function setNodeData(data, callback) {
           return;
         }
 
+        if (
+          result.evictId &&
+          !ownershipAllowsEviction({
+            registry: verifiedIdentities,
+            occupantId: result.evictId,
+            verified,
+            publicKey,
+          })
+        ) {
+          logger.warn(`Rejected node ${record.id} eviction of the owned node ${result.evictId}`);
+          callback(false);
+          return;
+        }
+
         if (result.evictId) {
           nodeCache.del(result.evictId);
         }
 
-        callback(
-          storeListing(
-            nodeCache,
-            result.store.id,
-            result.store,
-            config.cache.expire,
-            cacheMaxKeys,
-            logger
-          )
+        const stored = storeListing(
+          nodeCache,
+          result.store.id,
+          result.store,
+          config.cache.expire,
+          cacheMaxKeys,
+          logger
         );
+
+        if (stored && verified) {
+          verifiedIdentities.set(data.id, publicKey);
+        }
+
+        callback(stored);
       };
 
       if (mustProbe(nodeData, data, updateCache[data.id])) {
@@ -371,10 +446,28 @@ app.get('/pool/random', publicGetCors, listNodesLimiter, (req, res) => {
 // post request for updating the node data (Joe's node has no Origin — CORS skipped)
 app.options('/pool/update', concealWriteCors);
 app.post('/pool/update', concealWriteCors, updateNodeLimiter, (req, res) => {
+  const auth = verifySubmitAuth(req.body, { maxSkewMs: authMaxSkewMs });
+
+  if (!auth.verified) {
+    if (auth.reason !== 'missing') {
+      logger.warn('Rejected an update request with invalid submission authentication', {
+        reason: auth.reason,
+      });
+      res.json({ success: false });
+      return;
+    }
+
+    if (requireSignedSubmissions) {
+      logger.warn('Rejected an unsigned update request because signed submissions are required');
+      res.json({ success: false });
+      return;
+    }
+  }
+
   const record = sanitizeNodeUpdate(req.body, logger);
 
   if (record) {
-    setNodeData(record, (result) => {
+    setNodeData(record, auth.verified ? auth : null, (result) => {
       res.json({ success: result });
     });
   } else {
