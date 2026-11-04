@@ -88,14 +88,16 @@ An example of the result:
 
 # Trust the node list with care
 
-The remote-node list is **unauthenticated**: anyone can submit a listing to `/pool/update` without proving they control the node they submit. The pool verifies what it can — every new listing is probed with `getinfo`, daemon-reported height and tip hash are checked against the seed-anchor band and the trailing anchor ring, seed-hosted and long-uptime nodes are preferred under cache pressure, and rate limits plus fail2ban cover abusive clients — but none of that is proof of ownership. A malicious operator can still run a real, reachable, in-sync daemon and get it listed.
+The remote-node list is **unauthenticated**: anyone can submit a listing to `/pool/update` without proving they control the node they submit. The pool verifies what it can — every new listing is probed with `getinfo`, daemon-reported height and tip hash are checked against the seed-anchor band and the trailing anchor ring, a covered miss removes the listing, seed-hosted and long-uptime nodes are preferred under cache pressure, and rate limits plus fail2ban cover abusive clients — but none of that is proof of ownership. A malicious operator can still run a real, reachable, in-sync daemon and get it listed.
 
 Treat `/pool/list` and `/pool/random` results as untrusted hints: run your own Conceal node, or use only endpoints from operators you trust. Do not rely on a random pool node for anything sensitive.
 
 ## Operator notes
 
 * `cache.maxKeys` caps the node directory (default 30 in code; the sample config sets the same value). When the cache is full, the lowest admission tier is evicted first, least-recently-seen within its tier: seed-hosted listings are kept first, then nodes with at least `admission.uptimeThresholdDays` (3) days of recent uptime ticks, then everything else.
-* The directory listing never stores requester IP addresses; rate limiting is in-process only.
+* A covered chain miss removes the listing.
+* One IP may hold `admission.tierNewPerIp` tier-C listings (default 2; the sample config sets the same value). Tier-C means not seed-hosted and short of `admission.uptimeThresholdDays` of recent uptime. A further listing from that IP replaces that IP's own oldest tier-C listing.
+* The submitter IP lives only in process memory and is not published. Rate limiting is in-process only.
 * Denial log lines in `errors.log` are stable output for `deploy/fail2ban/` — see the sample filter and jail there.
 
 

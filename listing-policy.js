@@ -84,6 +84,72 @@ const applyListingUpdate = ({ data, existing, reachable, occupantId }) => {
 //     grace flag and re-verified by the next probe tick (probe.skipSeconds);
 //     once the ring reaches the claimed height, a hash mismatch rejects the row;
 //   - a height the ring covers with no matching hash (or no hash) is rejected.
+// Ring maximum is the last published entry (see anchor-ring.js).
+const chainVerdict = (value, anchorHeight, ring) => {
+  if (!Number.isInteger(anchorHeight)) {
+    return 'unchecked';
+  }
+
+  const chain = value.blockchain && typeof value.blockchain === 'object' ? value.blockchain : {};
+  const height = Number(chain.height);
+
+  if (!Number.isFinite(height)) {
+    return 'reject';
+  }
+
+  if (height < anchorHeight - 2 || height > anchorHeight + 2) {
+    return 'reject';
+  }
+
+  const entries = typeof ring?.entries === 'function' ? ring.entries() : [];
+
+  if (entries.length === 0) {
+    return 'unchecked';
+  }
+
+  const claimedHash = typeof chain.tipHash === 'string' ? chain.tipHash.toLowerCase() : null;
+  const verified = entries.some((entry) => entry.height === height && entry.hash === claimedHash);
+
+  if (verified) {
+    return 'verified';
+  }
+
+  if (height > entries[entries.length - 1].height) {
+    return 'grace';
+  }
+
+  return 'reject';
+};
+
+const noteSyncedGrace = (value, verdict) => {
+  if (!value.status || typeof value.status !== 'object') {
+    return;
+  }
+
+  if (verdict === 'grace') {
+    value.status.syncedGrace = true;
+    return;
+  }
+
+  delete value.status.syncedGrace;
+};
+
+const applyChainGate = (cache, record, anchorHeight, ring) => {
+  const verdict = chainVerdict(record, anchorHeight, ring);
+
+  noteSyncedGrace(record, verdict);
+
+  if (verdict === 'reject') {
+    if (typeof record.id === 'string' && record.id !== '') {
+      cache.del(record.id);
+    }
+
+    return { ok: false, verdict: 'reject' };
+  }
+
+  return { ok: true, verdict };
+};
+
 const syncedNodes = (values, isSyncedOnly, anchorHeight, ring) => {
   if (!isSyncedOnly) {
     return values;
@@ -93,60 +159,22 @@ const syncedNodes = (values, isSyncedOnly, anchorHeight, ring) => {
     return [];
   }
 
-  const entries = typeof ring?.entries === 'function' ? ring.entries() : [];
-  const maxRingHeight = entries.length > 0 ? entries[entries.length - 1].height : null;
-
   return values.filter((value) => {
     if (value.status?.isReachable !== true) {
       return false;
     }
 
-    const chain = value.blockchain && typeof value.blockchain === 'object' ? value.blockchain : {};
-    const height = Number(chain.height);
+    const verdict = chainVerdict(value, anchorHeight, ring);
+    noteSyncedGrace(value, verdict);
 
-    if (!Number.isFinite(height)) {
-      return false;
-    }
-
-    if (height < anchorHeight - 2 || height > anchorHeight + 2) {
-      return false;
-    }
-
-    if (entries.length === 0) {
-      return true;
-    }
-
-    const claimedHash = typeof chain.tipHash === 'string' ? chain.tipHash.toLowerCase() : null;
-    const verified = entries.some((entry) => entry.height === height && entry.hash === claimedHash);
-
-    if (verified) {
-      if (value.status) {
-        delete value.status.syncedGrace;
-      }
-
-      return true;
-    }
-
-    if (maxRingHeight === null || height > maxRingHeight) {
-      // the real chain has not reached the claimed height yet: store under grace,
-      // the next probe tick re-verifies once the ring covers this height
-      if (value.status) {
-        value.status.syncedGrace = true;
-      }
-
-      return true;
-    }
-
-    if (value.status) {
-      delete value.status.syncedGrace;
-    }
-
-    return false;
+    return verdict !== 'reject';
   });
 };
 
 module.exports = {
+  applyChainGate,
   applyListingUpdate,
+  chainVerdict,
   listingKey,
   mustProbe,
   occupantIdForKey,

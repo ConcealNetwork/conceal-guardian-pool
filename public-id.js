@@ -19,6 +19,10 @@ const toPublicNode = (node) => {
     delete publicNode.admissionTier;
   }
 
+  if ('submitterIp' in publicNode) {
+    delete publicNode.submitterIp;
+  }
+
   if (
     publicNode.status &&
     typeof publicNode.status === 'object' &&

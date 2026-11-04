@@ -1,0 +1,43 @@
+const { describe, it } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+describe('commitListing chain gate wiring', () => {
+  it('runs the chain gate before host:port eviction and returns on reject', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
+    const start = source.indexOf('const commitListing');
+    const end = source.indexOf('if (mustProbe', start);
+    const commit = source.slice(start, end);
+    const gateAt = commit.indexOf('applyChainGate(');
+    const evictAt = commit.indexOf('if (result.evictId)');
+    const rejectAt = commit.indexOf('if (!gate.ok)');
+
+    assert.ok(gateAt !== -1);
+    assert.ok(rejectAt !== -1);
+    assert.ok(evictAt !== -1);
+    assert.ok(gateAt < rejectAt);
+    assert.ok(rejectAt < evictAt);
+    assert.match(commit.slice(rejectAt, evictAt), /callback\(false\)/);
+    assert.match(commit.slice(rejectAt, evictAt), /return;/);
+  });
+});
+
+describe('pool update submitter IP', () => {
+  it('assigns req.ip onto the sanitized record before setNodeData', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
+    const start = source.indexOf("app.post('/pool/update'");
+    const end = source.indexOf("app.options('/pool/uptime'", start);
+    const handler = source.slice(start, end);
+    const recordAt = handler.indexOf('if (record)');
+    const assignAt = handler.indexOf('record.submitterIp = req.ip');
+    const setAt = handler.indexOf('setNodeData(record');
+
+    assert.ok(start !== -1);
+    assert.ok(recordAt !== -1);
+    assert.ok(assignAt !== -1);
+    assert.ok(setAt !== -1);
+    assert.ok(recordAt < assignAt);
+    assert.ok(assignAt < setAt);
+  });
+});

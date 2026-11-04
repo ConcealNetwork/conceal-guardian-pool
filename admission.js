@@ -15,6 +15,7 @@ const resolvePositiveInt = (value, fallback) => {
 // admission knobs; invalid config values fall back to the code defaults
 const trailingRingDepth = resolvePositiveInt(config.admission?.trailingRingDepth, 20);
 const uptimeThresholdDays = resolvePositiveInt(config.admission?.uptimeThresholdDays, 3);
+const tierNewPerIp = resolvePositiveInt(config.admission?.tierNewPerIp, 2);
 const uptimePeriodSeconds = resolvePositiveInt(config.uptime?.period, 60);
 
 // 60 s ticks -> 1440 per day -> 4320 ticks for the 3-day default threshold
@@ -95,6 +96,7 @@ const pickEviction = (rows, incomingTier) => {
 const admitListing = (cache, record, options = {}) => {
   const { ttl, maxKeys, logger, context } = options;
   const hosts = context?.seedHosts instanceof Set ? context.seedHosts : seedHosts;
+  const perIpCap = resolvePositiveInt(context?.tierNewPerIp, tierNewPerIp);
 
   if (!record || typeof record.id !== 'string' || record.id === '') {
     return false;
@@ -103,6 +105,50 @@ const admitListing = (cache, record, options = {}) => {
   // the incoming record earns its tier from its own probe host and its own
   // recent uptime history, then keeps that tier while it stays in the cache
   const incomingTier = resolveTier(record, context);
+  const storedTier = (row) => {
+    if (hosts.has(probeHostName(row))) {
+      return TIER_SEED;
+    }
+
+    return Number.isInteger(row.admissionTier) ? row.admissionTier : TIER_NEW;
+  };
+
+  // tier C is capped per submitter. Seed and uptime skip the cap. A refresh
+  // keeps its seat. At the cap, that IP's oldest tier-C row makes room before
+  // the directory rule below runs.
+  if (incomingTier === TIER_NEW) {
+    const submitterIp = record.submitterIp;
+
+    if (typeof submitterIp !== 'string' || submitterIp === '') {
+      return false;
+    }
+
+    if (!cache.has(record.id)) {
+      const sameIp = [];
+
+      for (const key of cache.keys()) {
+        const row = cache.get(key);
+
+        if (!row || typeof row !== 'object' || row.submitterIp !== submitterIp) {
+          continue;
+        }
+
+        if (storedTier(row) !== TIER_NEW) {
+          continue;
+        }
+
+        sameIp.push({
+          id: key,
+          lastSeenMs: Date.parse(row.status?.lastSeen) || 0,
+        });
+      }
+
+      if (sameIp.length >= perIpCap) {
+        sameIp.sort((left, right) => left.lastSeenMs - right.lastSeenMs);
+        cache.del(sameIp[0].id);
+      }
+    }
+  }
 
   if (cache.has(record.id) || cache.keys().length < maxKeys) {
     record.admissionTier = incomingTier;
@@ -123,15 +169,9 @@ const admitListing = (cache, record, options = {}) => {
     // host always re-derives Tier A from its address, so the top tier never
     // depends on the database. Rows without a stored tier (never admitted
     // through this path) count as the lowest tier.
-    const tier = hosts.has(probeHostName(row))
-      ? TIER_SEED
-      : Number.isInteger(row.admissionTier)
-        ? row.admissionTier
-        : TIER_NEW;
-
     rows.push({
       id: key,
-      tier,
+      tier: storedTier(row),
       lastSeenMs: Date.parse(row.status?.lastSeen) || 0,
     });
   }
@@ -161,6 +201,7 @@ module.exports = {
   resolvePositiveInt,
   resolveTier,
   seedHosts,
+  tierNewPerIp,
   trailingRingDepth,
   uptimeMonthsWindow,
   uptimeThresholdDays,

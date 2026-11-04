@@ -44,6 +44,21 @@ describe('toPublicNode', () => {
     assert.equal(node.blockchain.tipHash, 'ab'.repeat(32));
   });
 
+  it('strips submitterIp without mutating the cached record', () => {
+    const node = {
+      id: rawId,
+      submitterIp: '198.51.100.10',
+      nodeHost: '203.0.113.10',
+      nodePort: 16000,
+    };
+    const published = toPublicNode(node);
+
+    assert.equal('submitterIp' in published, false);
+    assert.equal(published.nodeHost, '203.0.113.10');
+    assert.equal(published.nodePort, 16000);
+    assert.equal(node.submitterIp, '198.51.100.10');
+  });
+
   it('leaves records without internal fields untouched', () => {
     const node = {
       id: rawId,

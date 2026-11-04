@@ -19,11 +19,13 @@ const { createAnchorRing } = require('./anchor-ring.js');
 const {
   admitListing,
   seedHosts,
+  tierNewPerIp,
   trailingRingDepth,
   uptimeMonthsWindow,
   uptimeTicksRequired,
 } = require('./admission.js');
 const {
+  applyChainGate,
   applyListingUpdate,
   listingKey,
   mustProbe,
@@ -299,6 +301,19 @@ function setNodeData(data, callback) {
             return;
           }
 
+          const gate = applyChainGate(
+            nodeCache,
+            result.store,
+            seedAnchor && Number.isInteger(seedAnchor.height) ? seedAnchor.height : null,
+            anchorRing
+          );
+
+          if (!gate.ok) {
+            logger.warn(`Rejected node ${record.id} chain gate (${gate.verdict})`);
+            callback(false);
+            return;
+          }
+
           if (result.evictId) {
             nodeCache.del(result.evictId);
           }
@@ -308,7 +323,12 @@ function setNodeData(data, callback) {
               ttl: config.cache.expire,
               maxKeys: cacheMaxKeys,
               logger,
-              context: { seedHosts, uptimeTicks, ticksRequired: uptimeTicksRequired },
+              context: {
+                seedHosts,
+                uptimeTicks,
+                ticksRequired: uptimeTicksRequired,
+                tierNewPerIp,
+              },
             })
           );
         };
@@ -391,6 +411,7 @@ app.post('/pool/update', concealWriteCors, updateNodeLimiter, (req, res) => {
   const record = sanitizeNodeUpdate(req.body, logger);
 
   if (record) {
+    record.submitterIp = req.ip;
     setNodeData(record, (result) => {
       res.json({ success: result });
     });
