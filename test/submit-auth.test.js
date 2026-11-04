@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 
 const {
+  createReplayGuard,
   identityAllowsNewListing,
   ownershipAllowsEviction,
   ownershipAllowsUpdate,
@@ -57,8 +58,23 @@ describe('submitAuthMessage', () => {
 
     assert.equal(
       submitAuthMessage(body),
-      ['ccx-pool-update-v1', '1762200000000', guardianId, '203.0.113.10', '16000'].join('\n')
+      [
+        '18:ccx-pool-update-v1',
+        '13:1762200000000',
+        `36:${guardianId}`,
+        '12:203.0.113.10',
+        '5:16000',
+      ].join(':')
     );
+  });
+
+  it('length-prefixes every field so separator bytes cannot blur the field boundaries', () => {
+    const body = signedBody(validBody({ nodeHost: 'host with\nnewlines:and:colons' }));
+
+    const message = submitAuthMessage(body);
+
+    assert.match(message, /^18:ccx-pool-update-v1:13:\d+:36:/);
+    assert.ok(message.includes('29:host with\nnewlines:and:colons'));
   });
 });
 
@@ -152,6 +168,10 @@ describe('verifySubmitAuth', () => {
       verified: false,
       reason: 'stale-timestamp',
     });
+    assert.deepEqual(
+      verifySubmitAuth(signedBody(validBody(), { timestamp: 1762200000000.5 }), options),
+      { verified: false, reason: 'stale-timestamp' }
+    );
   });
 
   it('rejects malformed keys and signatures before any crypto work', () => {
@@ -201,6 +221,32 @@ describe('verifySubmitAuth', () => {
       'blockchain',
       'location',
     ]);
+  });
+});
+
+describe('createReplayGuard', () => {
+  it('accepts the first presentation of a signature and rejects repeats inside the window', () => {
+    const now = 1000;
+    const guard = createReplayGuard({ ttlMs: 600000, nowMs: () => now });
+
+    assert.equal(guard.checkAndRecord('aa'.repeat(64)), true);
+    assert.equal(guard.checkAndRecord('aa'.repeat(64)), false);
+    assert.equal(guard.checkAndRecord('bb'.repeat(64)), true);
+    // case-insensitive, matching the envelope verification
+    assert.equal(guard.checkAndRecord('AA'.repeat(64)), false);
+    assert.equal(guard.size(), 2);
+  });
+
+  it('accepts a signature again once its entry expires and prunes it', () => {
+    let now = 1000;
+    const guard = createReplayGuard({ ttlMs: 600, nowMs: () => now });
+
+    assert.equal(guard.checkAndRecord('cc'.repeat(64)), true);
+    now += 599;
+    assert.equal(guard.checkAndRecord('cc'.repeat(64)), false);
+    now += 2;
+    assert.equal(guard.checkAndRecord('cc'.repeat(64)), true);
+    assert.equal(guard.size(), 1);
   });
 });
 
@@ -317,6 +363,25 @@ describe('ownership policy helpers', () => {
         registryCap: 500,
       }),
       false
+    );
+  });
+
+  it('admits a move of an already-held id even at the per-key cap', () => {
+    const registry = new Map();
+
+    for (let i = 0; i < 8; i++) {
+      registry.set(`id-${i}`, publicKeyHex);
+    }
+
+    assert.equal(
+      identityAllowsNewListing({
+        registry,
+        id: 'id-0',
+        publicKey: publicKeyHex,
+        maxListingsPerKey: 8,
+        registryCap: 500,
+      }),
+      true
     );
   });
 });

@@ -14,7 +14,10 @@ const isPlainObject = (value) => value && typeof value === 'object' && !Array.is
 
 // Canonical signed message: the signature binds the envelope timestamp and the
 // exact submitted id, host and port, so a captured payload cannot be re-pointed
-// at another listing and a replay only re-asserts an identical binding.
+// at another listing and a replay only re-asserts an identical binding. Every
+// field is length-prefixed with its byte length, so a future validation drift
+// that lets separator or newline bytes into a field still cannot make one
+// field's bytes be read as another field's.
 const submitAuthMessage = (body) =>
   [
     messageVersion,
@@ -22,7 +25,47 @@ const submitAuthMessage = (body) =>
     String(body.id),
     String(body.nodeHost),
     String(body.nodePort),
-  ].join('\n');
+  ]
+    .map((field) => `${Buffer.byteLength(field)}:${field}`)
+    .join(':');
+
+// RAM-only replay guard: the first presentation of a signature is remembered
+// for ttlMs and any later presentation of the same signature inside that span
+// is rejected. ttlMs should cover the widest span over which one signature
+// stays valid: a signature minted at the oldest edge of the skew window stays
+// acceptable until the newest edge, i.e. twice maxSkewMs. Entries are pruned
+// lazily on each check, so memory stays bounded by the traffic inside one
+// ttl span. Residual: a process restart forgets seen signatures (a captured
+// payload can be replayed once after a restart), and the check runs after the
+// envelope itself verified, so junk signatures never occupy memory.
+const createReplayGuard = ({ ttlMs = 600000, nowMs = Date.now } = {}) => {
+  const seen = new Map();
+
+  return {
+    checkAndRecord: (signature) => {
+      const now = nowMs();
+
+      for (const [fingerprint, expiresAt] of seen) {
+        if (expiresAt <= now) {
+          seen.delete(fingerprint);
+        }
+      }
+
+      const fingerprint = crypto
+        .createHash('sha256')
+        .update(String(signature).toLowerCase(), 'utf8')
+        .digest('hex');
+
+      if (seen.has(fingerprint)) {
+        return false;
+      }
+
+      seen.set(fingerprint, now + ttlMs);
+      return true;
+    },
+    size: () => seen.size,
+  };
+};
 
 // Verify the proof-of-ownership envelope on a /pool/update payload. A missing
 // envelope is reported as { verified: false, reason: 'missing' } so the
@@ -55,7 +98,15 @@ const verifySubmitAuth = (body, { maxSkewMs, nowMs = Date.now() }) => {
     return { verified: false, reason: 'invalid-signature' };
   }
 
-  if (!Number.isFinite(timestamp) || Math.abs(nowMs - timestamp) > maxSkewMs) {
+  // The skew window compares a client-supplied timestamp against the server
+  // wall clock. That clock is server-owned, but a backward wall-clock step
+  // (NTP correction) re-opens the window for signatures minted before the
+  // step; a monotonic server clock alone cannot close that. The replay guard
+  // wired into index.js covers the practical surface (a replayed signature is
+  // rejected regardless of the wall clock, for 2x maxSkew from first sight);
+  // the residual (first-seen-after-step signatures, and a restart lapse) is
+  // disclosed in the PR description.
+  if (!Number.isInteger(timestamp) || Math.abs(nowMs - timestamp) > maxSkewMs) {
     return { verified: false, reason: 'stale-timestamp' };
   }
 
@@ -96,8 +147,14 @@ const ownershipAllowsEviction = ({ registry, occupantId, verified, publicKey }) 
 };
 
 // Bound how many concurrent listings one identity may hold so a single key
-// cannot out-fill the reserved verified budget either.
+// cannot out-fill the reserved verified budget either. An id already held by
+// its own key is always admitted: refreshing or moving a held listing must
+// never be blocked by the bound, only genuinely new listings count.
 const identityAllowsNewListing = ({ registry, id, publicKey, maxListingsPerKey, registryCap }) => {
+  if (registry.has(id)) {
+    return true;
+  }
+
   let held = 0;
 
   for (const key of registry.values()) {
@@ -106,10 +163,11 @@ const identityAllowsNewListing = ({ registry, id, publicKey, maxListingsPerKey, 
     }
   }
 
-  return held < maxListingsPerKey && (registry.has(id) || registry.size < registryCap);
+  return held < maxListingsPerKey && registry.size < registryCap;
 };
 
 module.exports = {
+  createReplayGuard,
   identityAllowsNewListing,
   ownershipAllowsEviction,
   ownershipAllowsUpdate,

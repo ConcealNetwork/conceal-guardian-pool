@@ -52,4 +52,54 @@ describe('storeListing', () => {
       },
     ]);
   });
+
+  it('lands a verified listing on a full cache by evicting the selected anonymous slot', () => {
+    const cache = fullCache();
+    const stored = storeListing(cache, 'c', { n: 3 }, ttl, maxKeys, silent, () => 'a');
+
+    assert.equal(stored, true);
+    assert.deepEqual(cache.get('c'), { n: 3 });
+    assert.equal(cache.get('a'), undefined);
+    assert.deepEqual(cache.get('b'), { n: 2 });
+    assert.equal(cache.getStats().keys, maxKeys);
+  });
+
+  it('refuses a verified listing when no anonymous slot can be freed', () => {
+    const warnings = [];
+    const cache = fullCache();
+    const stored = storeListing(
+      cache,
+      'c',
+      { n: 3 },
+      ttl,
+      maxKeys,
+      {
+        warn(message, fields) {
+          warnings.push({ message, fields });
+        },
+      },
+      () => undefined
+    );
+
+    assert.equal(stored, false);
+    assert.equal(cache.get('c'), undefined);
+    assert.deepEqual(cache.get('a'), { n: 1 });
+    assert.deepEqual(cache.get('b'), { n: 2 });
+    assert.deepEqual(warnings, [
+      {
+        message: 'Rejected a verified listing because no anonymous slot was freeable',
+        fields: { nodeId: 'c' },
+      },
+    ]);
+  });
+
+  it('refuses a verified listing when the freed slot does not clear the cap', () => {
+    // maxKeys=2 but a third key sneaks in between selection and retry: the
+    // retry must surface the refusal instead of throwing or looping
+    const cache = fullCache();
+    const stored = storeListing(cache, 'c', { n: 3 }, ttl, maxKeys, silent, () => 'zzz');
+
+    assert.equal(stored, false);
+    assert.equal(cache.get('c'), undefined);
+  });
 });

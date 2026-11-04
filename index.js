@@ -25,7 +25,9 @@ const {
 } = require('./listing-policy.js');
 const { toPublicNode, toPublicUptime, resolvePrivateId } = require('./public-id.js');
 const { publicGetCors, concealWriteCors } = require('./middleware-cors.js');
+const { createOwnershipRegistry } = require('./ownership-registry.js');
 const {
+  createReplayGuard,
   identityAllowsNewListing,
   ownershipAllowsEviction,
   ownershipAllowsUpdate,
@@ -174,8 +176,16 @@ const anonymousListingCap = updateAuthConfig.anonymousListingCap ?? 450;
 
 // RAM-only registry binding verified node ids to their ed25519 public key.
 // Never persisted to the database: a restart forgets ownership until owners
-// re-submit a signed update.
-const verifiedIdentities = new Map();
+// re-submit a signed update. Claims are reserved synchronously before any
+// async probe work (no registration takeover race) and reconciled against the
+// listing cache so expiries and evictions release them again.
+const registry = createOwnershipRegistry();
+
+// Signed submissions must not be replayable within the skew window: the first
+// presentation of a signature wins, later ones are refused for twice the skew
+// span (the widest period one signature stays valid). RAM-only, so a restart
+// lapse remains a disclosed residual.
+const submitReplayGuard = createReplayGuard({ ttlMs: authMaxSkewMs * 2 });
 
 const nodeCache = new NodeCache({
   stdTTL: config.cache.expire,
@@ -227,7 +237,41 @@ function getAllNodes(keys) {
 // unsigned listings occupy a bounded budget of the cache so verified identities
 // can always find a slot (SG-010 starvation guard)
 function countAnonymousListings() {
-  return getAllNodes(nodeCache.keys()).filter((row) => !verifiedIdentities.has(row.id)).length;
+  return getAllNodes(nodeCache.keys()).filter((row) => !registry.claims.has(row.id)).length;
+}
+
+// Least-recently-updated anonymous listing: the slot a verified submission may
+// take when the cache is at its hard cap. Claimed and in-flight ids are never
+// victims. Records always carry status.lastSeen (set before commit); a missing
+// or unparseable stamp sorts oldest so the slot stays reclaimable.
+function oldestAnonymousListingId() {
+  let victim;
+  let oldestSeen = Number.POSITIVE_INFINITY;
+
+  for (const key of nodeCache.keys()) {
+    const row = nodeCache.get(key);
+
+    if (!row || registry.claims.has(row.id) || registry.pending.has(row.id)) {
+      continue;
+    }
+
+    const seen = Date.parse(row.status?.lastSeen);
+    const stamp = Number.isFinite(seen) ? seen : 0;
+
+    if (stamp < oldestSeen) {
+      oldestSeen = stamp;
+      victim = row.id;
+    }
+  }
+
+  return victim;
+}
+
+// Release registry claims whose listing expired or was evicted (HIGH: the
+// registry would otherwise grow unboundedly and pollute every bound counted
+// over it). In-flight registrations are protected by the pending grace period.
+function reconcileRegistry() {
+  registry.reconcile(new Set(nodeCache.keys()));
 }
 
 function filterResults(req, values) {
@@ -277,34 +321,63 @@ function setNodeData(data, auth, callback) {
   const verified = auth?.verified === true;
   const publicKey = auth?.publicKey;
 
-  if (!ownershipAllowsUpdate({ registry: verifiedIdentities, id: data.id, verified, publicKey })) {
+  // Expiries and evictions must release claims before any bound is counted
+  // over the registry, otherwise stale entries pollute every registry bound.
+  registry.reconcile(new Set(nodeCache.keys()));
+
+  if (!ownershipAllowsUpdate({ registry: registry.claims, id: data.id, verified, publicKey })) {
     logger.warn(`Rejected node ${data.id} update without proof of ownership`);
     callback(false);
     return;
   }
 
-  if (!nodeCache.has(data.id)) {
-    if (
-      verified &&
-      !identityAllowsNewListing({
-        registry: verifiedIdentities,
-        id: data.id,
-        publicKey,
-        maxListingsPerKey,
-        registryCap: cacheMaxKeys,
-      })
-    ) {
-      logger.warn(`Rejected node ${data.id} listing over the per-identity or registry bound`);
-      callback(false);
-      return;
+  // Admission is decided synchronously. The verified bound is enforced for
+  // every signed submission, including moves of an already-held listing, so
+  // the per-identity cap cannot be bypassed by re-homing an id; the anonymous
+  // budget only ever gates genuinely new ids.
+  if (
+    verified &&
+    !identityAllowsNewListing({
+      registry: registry.claims,
+      id: data.id,
+      publicKey,
+      maxListingsPerKey,
+      registryCap: cacheMaxKeys,
+    })
+  ) {
+    logger.warn(`Rejected node ${data.id} listing over the per-identity or registry bound`);
+    callback(false);
+    return;
+  }
+
+  if (!verified && !nodeCache.has(data.id) && countAnonymousListings() >= anonymousListingCap) {
+    logger.warn('Rejected a new unsigned listing because the anonymous listing budget is full');
+    callback(false);
+    return;
+  }
+
+  // Reserve the ownership claim synchronously, before any async storage or
+  // probe work: the check-and-set never awaits, so two concurrent signed
+  // submissions for the same unclaimed id cannot both enter the flow — the
+  // second is refused by ownershipAllowsUpdate while the first is in flight.
+  const reservedHere = verified === true && !registry.claims.has(data.id);
+
+  if (reservedHere) {
+    registry.claimForUpdate(data.id, publicKey);
+  }
+
+  // Every outcome routes through finish: a landed verified listing confirms
+  // the reservation, any failure rolls it back so a rejected registration
+  // cannot squat the id or count against the bounds.
+  const finish = (ok) => {
+    if (verified && ok === true) {
+      registry.confirm(data.id, publicKey);
+    } else if (reservedHere) {
+      registry.release(data.id, publicKey);
     }
 
-    if (!verified && countAnonymousListings() >= anonymousListingCap) {
-      logger.warn('Rejected a new unsigned listing because the anonymous listing budget is full');
-      callback(false);
-      return;
-    }
-  }
+    callback(ok);
+  };
 
   storage.getClientUptime(
     { id: [data.id], year: [moment().year()], month: [moment().month() + 1] },
@@ -334,21 +407,21 @@ function setNodeData(data, auth, callback) {
           logger.warn(
             `Rejected node ${record.id} listing ${listingKey(record)} (${result.reason})`
           );
-          callback(false);
+          finish(false);
           return;
         }
 
         if (
           result.evictId &&
           !ownershipAllowsEviction({
-            registry: verifiedIdentities,
+            registry: registry.claims,
             occupantId: result.evictId,
             verified,
             publicKey,
           })
         ) {
           logger.warn(`Rejected node ${record.id} eviction of the owned node ${result.evictId}`);
-          callback(false);
+          finish(false);
           return;
         }
 
@@ -362,14 +435,11 @@ function setNodeData(data, auth, callback) {
           result.store,
           config.cache.expire,
           cacheMaxKeys,
-          logger
+          logger,
+          verified ? oldestAnonymousListingId : undefined
         );
 
-        if (stored && verified) {
-          verifiedIdentities.set(data.id, publicKey);
-        }
-
-        callback(stored);
+        finish(stored);
       };
 
       if (mustProbe(nodeData, data, updateCache[data.id])) {
@@ -464,6 +534,17 @@ app.post('/pool/update', concealWriteCors, updateNodeLimiter, (req, res) => {
     }
   }
 
+  if (auth.verified) {
+    const signature =
+      typeof req.body?.auth?.signature === 'string' ? req.body.auth.signature.toLowerCase() : '';
+
+    if (!signature || !submitReplayGuard.checkAndRecord(signature)) {
+      logger.warn('Rejected a replayed signed update submission');
+      res.json({ success: false });
+      return;
+    }
+  }
+
   const record = sanitizeNodeUpdate(req.body, logger);
 
   if (record) {
@@ -507,6 +588,10 @@ app.all(
 app.get('/pool/stats', publicGetCors, listNodesLimiter, (_req, res) => {
   res.json(nodeCache.getStats());
 });
+
+// release registry claims whose listing expired or was evicted, even with
+// zero update traffic, so the registry stays bounded by the live cache
+setInterval(reconcileRegistry, config.cache.checkPeriod * 1000);
 
 // set the interval for the uptime check of all nodes
 setInterval(checkNodesUptimeStatus, config.uptime.period * 1000);
