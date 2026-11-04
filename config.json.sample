@@ -4,7 +4,12 @@
 	},
 	"cache": {
 		"expire": 600,
-		"checkPeriod": 120
+		"checkPeriod": 120,
+		"maxKeys": 30
+	},
+	"admission": {
+		"trailingRingDepth": 20,
+		"uptimeThresholdDays": 3
 	},
 	"uptime": {
 		"period": 60

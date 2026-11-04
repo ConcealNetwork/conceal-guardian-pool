@@ -1,6 +1,7 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
+const { createAnchorRing } = require('../anchor-ring');
 const {
   applyListingUpdate,
   listingKey,
@@ -214,25 +215,115 @@ describe('preserveProbedChain', () => {
 });
 
 describe('synced filter', () => {
-  it('keeps reachable rows at or above the seed anchor minus 2', () => {
+  const hash = (height) => String(height).padStart(64, '0');
+  const row = (height, tipHash, reachable = true) => ({
+    status: { isReachable: reachable },
+    blockchain: tipHash ? { height, tipHash } : { height },
+  });
+  // ring of the last 20 published tips: heights 2158984..2159003, anchor = 2159003
+  const buildRing = () => {
+    const ring = createAnchorRing(20);
+
+    for (let height = 2158984; height <= 2159003; height++) {
+      ring.push({ height, hash: hash(height) });
+    }
+
+    return ring;
+  };
+
+  it('keeps reachable rows inside the anchor band when no ring is known yet', () => {
     const rows = [
-      { status: { isReachable: true }, blockchain: { height: 2159003 } },
-      { status: { isReachable: true }, blockchain: { height: 2159001 } },
-      { status: { isReachable: true }, blockchain: { height: 2159000 } },
-      { status: { isReachable: true }, blockchain: { height: 2159103 } },
-      { status: { isReachable: false }, blockchain: { height: 2159003 } },
+      row(2159003),
+      row(2159001),
+      row(2159005),
+      row(2159000),
+      row(2159006),
+      row(2159103),
+      row(2159003, undefined, false),
     ];
 
     assert.deepEqual(
-      syncedNodes(rows, true, 2159003).map((row) => row.blockchain.height),
-      [2159003, 2159001, 2159103]
+      syncedNodes(rows, true, 2159003).map((rowValue) => rowValue.blockchain.height),
+      [2159003, 2159001, 2159005]
     );
   });
 
   it('returns no synced rows when the seed anchor is missing', () => {
-    const rows = [{ status: { isReachable: true }, blockchain: { height: 2159003 } }];
+    const rows = [row(2159003)];
 
     assert.deepEqual(syncedNodes(rows, true, null), []);
     assert.deepEqual(syncedNodes(rows, false, null), rows);
+  });
+
+  it('verifies a row whose height and tip hash sit in the ring', () => {
+    const ring = buildRing();
+    const verified = row(2159001, hash(2159001));
+
+    assert.deepEqual(syncedNodes([verified], true, 2159003, ring), [verified]);
+    assert.equal(verified.status.syncedGrace, undefined);
+  });
+
+  it('rejects a ring-covered height with a mismatched tip hash', () => {
+    const ring = buildRing();
+
+    assert.deepEqual(syncedNodes([row(2159001, hash(2159002))], true, 2159003, ring), []);
+  });
+
+  it('rejects a ring-covered height with no tip hash at all', () => {
+    const ring = buildRing();
+
+    assert.deepEqual(syncedNodes([row(2159001)], true, 2159003, ring), []);
+  });
+
+  it('admits a height above the ring maximum inside the band under grace', () => {
+    const ring = buildRing();
+    const ahead = row(2159004, hash(2159004));
+
+    assert.deepEqual(syncedNodes([ahead], true, 2159003, ring), [ahead]);
+    assert.equal(ahead.status.syncedGrace, true);
+  });
+
+  it('keeps the grace window inside the upper bound', () => {
+    const ring = buildRing();
+    const graceTop = row(2159005, hash(2159005));
+    const beyond = row(2159006, hash(2159006));
+
+    assert.deepEqual(syncedNodes([graceTop, beyond], true, 2159003, ring), [graceTop]);
+  });
+
+  it('rejects a grace row on hash mismatch once the ring reaches its height', () => {
+    const ring = buildRing();
+    const grace = row(2159004, hash(2159004));
+
+    assert.deepEqual(syncedNodes([grace], true, 2159003, ring), [grace]);
+
+    // the real chain reached 2159004 with a different hash
+    ring.push({ height: 2159004, hash: hash(2159003) });
+
+    assert.deepEqual(syncedNodes([grace], true, 2159003, ring), []);
+    assert.equal(grace.status.syncedGrace, undefined);
+  });
+
+  it('clears the grace flag once the ring verifies the claimed tip', () => {
+    const ring = buildRing();
+    const grace = row(2159004, hash(2159004));
+
+    syncedNodes([grace], true, 2159003, ring);
+    assert.equal(grace.status.syncedGrace, true);
+
+    ring.push({ height: 2159004, hash: hash(2159004) });
+    syncedNodes([grace], true, 2159003, ring);
+
+    assert.equal(grace.status.syncedGrace, undefined);
+  });
+
+  it('rejects a row with a non-numeric height inside the band', () => {
+    const values = [
+      { status: { isReachable: true }, blockchain: {} },
+      { status: { isReachable: true } },
+    ];
+
+    assert.deepEqual(syncedNodes(values, true, 2159003, buildRing()), []);
+    assert.deepEqual(syncedNodes(values, true, 2159003), []);
   });
 });

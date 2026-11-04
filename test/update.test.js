@@ -439,6 +439,50 @@ describe('applyDaemonInfo', () => {
     assert.equal(applyDaemonInfo(data, null, nullLogger, probeNowMs), true);
     assert.deepEqual(data.blockchain, { height: probeHeight });
   });
+
+  it('captures a valid daemon tip hash alongside the height', () => {
+    const data = { id: 'node-1', blockchain: {} };
+    const tip = 'ab'.repeat(32);
+
+    assert.equal(
+      applyDaemonInfo(
+        data,
+        { height: probeHeight, top_block_hash: tip.toUpperCase() },
+        nullLogger,
+        probeNowMs
+      ),
+      true
+    );
+
+    assert.equal(data.blockchain.tipHash, tip);
+  });
+
+  it('drops a malformed daemon tip hash and clears a stale one', () => {
+    const data = { id: 'node-1', blockchain: { height: probeHeight, tipHash: 'ab'.repeat(32) } };
+
+    assert.equal(
+      applyDaemonInfo(data, { height: probeHeight, top_block_hash: 'zz' }, nullLogger, probeNowMs),
+      true
+    );
+
+    assert.equal(data.blockchain.tipHash, undefined);
+    assert.equal(applyDaemonInfo(data, { height: probeHeight }, nullLogger, probeNowMs), true);
+    assert.equal(data.blockchain.tipHash, undefined);
+  });
+
+  it('copies no tip hash when the daemon response is rejected as a whole', () => {
+    const farFuture = expectedHeight(probeNowMs) + heightWeekBlocks + 5;
+    const tip = 'cd'.repeat(32);
+    const data = { id: 'node-1', blockchain: { height: probeHeight } };
+
+    assert.equal(
+      applyDaemonInfo(data, { height: farFuture, top_block_hash: tip }, nullLogger, probeNowMs),
+      false
+    );
+
+    assert.equal(data.blockchain.tipHash, undefined);
+    assert.equal(data.blockchain.height, probeHeight);
+  });
 });
 
 describe('probeNode address pinning', () => {

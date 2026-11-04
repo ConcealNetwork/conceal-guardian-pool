@@ -24,6 +24,37 @@ describe('toPublicNode', () => {
     assert.equal(published.nodeHost, '203.0.113.10');
     assert.equal(node.id, rawId);
   });
+
+  it('strips the internal admission fields without mutating the cached record', () => {
+    const node = {
+      id: rawId,
+      admissionTier: 2,
+      status: { isReachable: true, syncedGrace: true },
+      blockchain: { height: 100, tipHash: 'ab'.repeat(32) },
+    };
+    const published = toPublicNode(node);
+
+    assert.equal('admissionTier' in published, false);
+    assert.equal('syncedGrace' in published.status, false);
+    assert.equal('tipHash' in published.blockchain, false);
+    assert.equal(published.blockchain.height, 100);
+    assert.equal(published.status.isReachable, true);
+    assert.equal(node.admissionTier, 2);
+    assert.equal(node.status.syncedGrace, true);
+    assert.equal(node.blockchain.tipHash, 'ab'.repeat(32));
+  });
+
+  it('leaves records without internal fields untouched', () => {
+    const node = {
+      id: rawId,
+      status: { isReachable: true },
+      blockchain: { height: 100 },
+    };
+    const published = toPublicNode(node);
+
+    assert.deepEqual(published.status, { isReachable: true });
+    assert.deepEqual(published.blockchain, { height: 100 });
+  });
 });
 
 describe('toPublicUptime', () => {

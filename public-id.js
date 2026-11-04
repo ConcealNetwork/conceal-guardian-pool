@@ -11,9 +11,38 @@ const toPublicNode = (node) => {
     return node;
   }
 
-  return { ...node, id: publicNodeId(node.id) };
-};
+  const publicNode = { ...node, id: publicNodeId(node.id) };
 
+  // internal admission fields never appear in the API response; the response
+  // shape stays exactly what it was before they were stored on the record
+  if ('admissionTier' in publicNode) {
+    delete publicNode.admissionTier;
+  }
+
+  if (
+    publicNode.status &&
+    typeof publicNode.status === 'object' &&
+    'syncedGrace' in publicNode.status
+  ) {
+    const status = { ...publicNode.status };
+
+    delete status.syncedGrace;
+    publicNode.status = status;
+  }
+
+  if (
+    publicNode.blockchain &&
+    typeof publicNode.blockchain === 'object' &&
+    'tipHash' in publicNode.blockchain
+  ) {
+    const blockchain = { ...publicNode.blockchain };
+
+    delete blockchain.tipHash;
+    publicNode.blockchain = blockchain;
+  }
+
+  return publicNode;
+};
 const toPublicUptime = (resultData) => {
   if (!resultData || !Array.isArray(resultData.uptimes)) {
     return resultData;
