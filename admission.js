@@ -21,7 +21,10 @@ const uptimePeriodSeconds = resolvePositiveInt(config.uptime?.period, 60);
 const uptimeTicksRequired = (uptimeThresholdDays * 24 * 60 * 60) / uptimePeriodSeconds;
 
 // how many recent calendar months of uptime history count toward the threshold;
-// the recency bound is intentional: old ticks must not earn a tier forever
+// the recency bound is intentional: old ticks must not earn a tier forever.
+// Sizing: window = ceil(thresholdDays / 30) + 1 months so the threshold span is
+// always fully contained across month boundaries; ticks older than the window
+// never count toward Tier B.
 const uptimeMonthsWindow = Math.max(1, Math.ceil(uptimeThresholdDays / 30) + 1);
 
 // Tier A: probe host is a configured seed — DB-independent, survives a database

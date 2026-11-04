@@ -127,6 +127,9 @@ function database(options) {
       return;
     }
 
+    // Calendar-month boundary behavior: the period list is built from moment()
+    // at call time, so partial months at the edges are included/excluded by
+    // calendar month; acceptable at 60 s tick granularity.
     const periods = [];
     let periodYear = moment().year();
     let periodMonth = moment().month() + 1;
