@@ -3,12 +3,17 @@ const assert = require('node:assert/strict');
 
 const {
   applyListingUpdate,
+  defaultPrefixCap,
+  ipv4Prefix,
   listingKey,
   mustProbe,
   occupantIdForKey,
+  pickWeightedNode,
   preserveProbedChain,
   probeSkipMs,
+  selectionWeights,
   syncedNodes,
+  tenureWeight,
 } = require('../listing-policy');
 
 const ipNode = (id, host = '203.0.113.10', port = 16000) => ({
@@ -234,5 +239,164 @@ describe('synced filter', () => {
 
     assert.deepEqual(syncedNodes(rows, true, null), []);
     assert.deepEqual(syncedNodes(rows, false, null), rows);
+  });
+});
+
+describe('ipv4Prefix', () => {
+  it('keeps the first three octets of a dotted-quad host', () => {
+    assert.equal(ipv4Prefix('192.0.1.7'), '192.0.1');
+    assert.equal(ipv4Prefix('203.0.113.10'), '203.0.113');
+  });
+
+  it('returns null for anything that is not a dotted-quad host', () => {
+    assert.equal(ipv4Prefix('ccxapi.conceal.network'), null);
+    assert.equal(ipv4Prefix(null), null);
+  });
+});
+
+describe('tenureWeight', () => {
+  const now = Date.parse('2026-11-04T02:00:00.000Z');
+  const nodeSeen = (iso) => ({ status: { firstSeen: iso } });
+
+  it('weights a node without firstSeen as brand new', () => {
+    assert.equal(tenureWeight({ status: {} }, now), 1);
+    assert.equal(tenureWeight({}, now), 1);
+  });
+
+  it('adds one weight step per full ten minutes of presence', () => {
+    assert.equal(tenureWeight(nodeSeen('2026-11-04T01:59:00.000Z'), now), 1);
+    assert.equal(tenureWeight(nodeSeen('2026-11-04T01:50:00.000Z'), now), 2);
+    assert.equal(tenureWeight(nodeSeen('2026-11-04T01:31:00.000Z'), now), 3);
+    assert.equal(tenureWeight(nodeSeen('2026-11-04T01:29:00.000Z'), now), 4);
+  });
+
+  it('caps the tenure bonus', () => {
+    assert.equal(tenureWeight(nodeSeen('2026-11-03T20:00:00.000Z'), now), 6);
+  });
+});
+
+describe('selectionWeights', () => {
+  const now = Date.parse('2026-11-04T00:00:00.000Z');
+
+  it('caps the combined weight a single /24 prefix can contribute', () => {
+    const nodes = [];
+    for (let index = 0; index < 20; index++) {
+      nodes.push({ id: `s${index}`, nodeHost: `198.51.100.${index + 1}`, nodePort: 16000 });
+    }
+
+    const weights = selectionWeights(nodes, defaultPrefixCap, now);
+
+    assert.equal(
+      weights.reduce((sum, weight) => sum + weight, 0),
+      defaultPrefixCap
+    );
+    assert.equal(
+      weights.slice(0, defaultPrefixCap).every((weight) => weight === 1),
+      true
+    );
+    assert.equal(
+      weights.slice(defaultPrefixCap).every((weight) => weight === 0),
+      true
+    );
+  });
+
+  it('gives each distinct prefix its own budget', () => {
+    const nodes = [
+      { id: 'a', nodeHost: '192.0.1.1', nodePort: 16000 },
+      { id: 'b', nodeHost: '192.0.2.1', nodePort: 16000 },
+      { id: 'c', nodeHost: 'ccx1.example.org', nodePort: 16000 },
+      { id: 'd', nodeHost: 'ccx2.example.org', nodePort: 16000 },
+    ];
+
+    assert.deepEqual(selectionWeights(nodes, defaultPrefixCap, now), [1, 1, 1, 1]);
+  });
+});
+
+describe('pickWeightedNode', () => {
+  const now = Date.parse('2026-11-04T00:00:00.000Z');
+  const nodeAt = (id, host, firstSeen = null) => ({
+    id,
+    nodeHost: host,
+    nodePort: 16000,
+    ...(firstSeen ? { status: { firstSeen } } : {}),
+  });
+
+  it('returns undefined for an empty list and the only node of a single entry', () => {
+    assert.equal(pickWeightedNode([], { now }), undefined);
+    assert.equal(pickWeightedNode([nodeAt('a', '192.0.1.1')], { now }).id, 'a');
+  });
+
+  it('beats a concentrated Sybil block spread over two prefixes', () => {
+    // Reference design: 10 fake nodes in the 198.51.100.0/24 and
+    // 203.0.113.0/24 prefixes against 10 real nodes across the eight distinct
+    // 192.0.1.0/24 .. 192.0.8.0/24 prefixes. Height does not matter for the
+    // pick, so the third octet is varied to keep the real prefixes distinct.
+    // Real nodes are established; fakes are first seen now.
+    const fake = [];
+    for (let index = 0; index < 5; index++) {
+      fake.push(nodeAt(`fake-a${index}`, `198.51.100.${index + 1}`));
+      fake.push(nodeAt(`fake-b${index}`, `203.0.113.${index + 1}`));
+    }
+
+    const real = [];
+    for (let index = 0; index < 10; index++) {
+      real.push(
+        nodeAt(`real-${index}`, `192.0.${(index % 8) + 1}.${index + 1}`, '2026-11-03T22:00:00.000Z')
+      );
+    }
+
+    const nodes = [...fake, ...real];
+    const runs = 1000;
+    let fakePicks = 0;
+
+    for (let step = 0; step < runs; step++) {
+      const picked = pickWeightedNode(nodes, { now, random: () => (step + 0.5) / runs });
+      const prefix = ipv4Prefix(picked.nodeHost);
+
+      if (prefix === '198.51.100' || prefix === '203.0.113') {
+        fakePicks++;
+      }
+    }
+
+    // Fakes hold 2 x 5 = 10 of the 10 + 8 x 5 = 50 selection mass (20%).
+    // A raw uniform pick would give them 50%.
+    assert.ok(fakePicks / runs < 0.3, `fake picks ${fakePicks} of ${runs}`);
+    assert.ok(fakePicks / runs > 0.1, `fake picks ${fakePicks} of ${runs}`);
+  });
+
+  it('bounds a single flood prefix even without tenure differences', () => {
+    const flood = [];
+    for (let index = 0; index < 20; index++) {
+      flood.push(nodeAt(`f${index}`, `198.51.100.${index + 1}`));
+    }
+
+    const real = [];
+    for (let index = 0; index < 10; index++) {
+      real.push(nodeAt(`r${index}`, `192.0.${index + 1}.1`));
+    }
+
+    const nodes = [...flood, ...real];
+    const runs = 900;
+    let floodPicks = 0;
+
+    for (let step = 0; step < runs; step++) {
+      const picked = pickWeightedNode(nodes, { now, random: () => (step + 0.5) / runs });
+
+      if (ipv4Prefix(picked.nodeHost) === '198.51.100') {
+        floodPicks++;
+      }
+    }
+
+    // The flood prefix holds 5 of 5 + 10 = 15 mass (33%) instead of 67% raw.
+    assert.ok(floodPicks / runs < 0.45, `flood picks ${floodPicks} of ${runs}`);
+    assert.ok(floodPicks / runs > 0.2, `flood picks ${floodPicks} of ${runs}`);
+  });
+
+  it('honours the weighted thresholds at the extremes', () => {
+    const nodes = [nodeAt('a', '192.0.1.1', '2026-11-03T22:00:00.000Z'), nodeAt('b', '192.0.2.1')];
+    // a weighs 5 (tenure capped per prefix), b weighs 1; total 6.
+    assert.equal(pickWeightedNode(nodes, { now, random: () => 0 }).id, 'a');
+    assert.equal(pickWeightedNode(nodes, { now, random: () => 0.9 }).id, 'b');
+    assert.equal(pickWeightedNode(nodes, { now, random: () => 0.82 }).id, 'a');
   });
 });

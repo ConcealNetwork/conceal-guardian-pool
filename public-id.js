@@ -11,7 +11,21 @@ const toPublicNode = (node) => {
     return node;
   }
 
-  return { ...node, id: publicNodeId(node.id) };
+  const publicNode = { ...node, id: publicNodeId(node.id) };
+
+  // firstSeen drives in-process Sybil weighting and cache eviction only; it is
+  // not part of the public API shape. Copy status before trimming so the
+  // cached record is never mutated through the public projection.
+  if (
+    publicNode.status &&
+    typeof publicNode.status === 'object' &&
+    'firstSeen' in publicNode.status
+  ) {
+    publicNode.status = { ...publicNode.status };
+    delete publicNode.status.firstSeen;
+  }
+
+  return publicNode;
 };
 
 const toPublicUptime = (resultData) => {

@@ -14,18 +14,18 @@ const { sanitizeNodeUpdate } = require('./sanitize.js');
 const { probeNode } = require('./probe.js');
 const { anchorHoldMs, nextAnchor } = require('./seed-anchor.js');
 const { sampleSeeds } = require('./seed-sample.js');
-const { cacheMaxKeys, storeListing } = require('./listing-cache.js');
+const { cacheMaxKeys: defaultCacheMaxKeys, storeListing } = require('./listing-cache.js');
 const {
   applyListingUpdate,
   listingKey,
   mustProbe,
   occupantIdForKey,
+  pickWeightedNode,
   preserveProbedChain,
   syncedNodes,
 } = require('./listing-policy.js');
 const { toPublicNode, toPublicUptime, resolvePrivateId } = require('./public-id.js');
 const { publicGetCors, concealWriteCors } = require('./middleware-cors.js');
-const crypto = require('node:crypto');
 const path = require('node:path');
 
 // query api timeout
@@ -158,6 +158,12 @@ const listNodesLimiter = rateLimit({
   },
 });
 
+const configuredMaxKeys = Math.floor(Number(config.cache.maxKeys));
+const cacheMaxKeys =
+  Number.isFinite(configuredMaxKeys) && configuredMaxKeys >= 1
+    ? configuredMaxKeys
+    : defaultCacheMaxKeys;
+
 const nodeCache = new NodeCache({
   stdTTL: config.cache.expire,
   checkperiod: config.cache.checkPeriod,
@@ -252,8 +258,9 @@ function setNodeData(data, callback) {
   storage.getClientUptime(
     { id: [data.id], year: [moment().year()], month: [moment().month() + 1] },
     (resultData) => {
-      data.status.lastSeen = moment().toISOString();
       const nodeData = nodeCache.get(data.id);
+      data.status.lastSeen = moment().toISOString();
+      data.status.firstSeen = nodeData?.status?.firstSeen || moment().toISOString();
 
       if (resultData?.uptimes && resultData.uptimes.length === 1) {
         const clientTicks = resultData.uptimes[0].clientTicks || 0;
@@ -345,10 +352,12 @@ app.get('/pool/count', publicGetCors, listNodesLimiter, (req, res) => {
   res.json({ success: true, count: filterResults(req, getAllNodes(nodeCache.keys())).length });
 });
 
-// get the random node back to user
+// get the random node back to user. The pick is weighted so a Sybil block
+// concentrated in a few /24 prefixes and first seen recently cannot dominate
+// what wallets are served. Grouping happens in-process only.
 app.get('/pool/random', publicGetCors, listNodesLimiter, (req, res) => {
   const nodeList = filterResults(req, getAllNodes(nodeCache.keys()));
-  const randomNode = nodeList.length ? nodeList[crypto.randomInt(nodeList.length)] : undefined;
+  const randomNode = pickWeightedNode(nodeList);
 
   if (randomNode) {
     let host = randomNode.url?.host ? randomNode.url.host : randomNode.nodeHost;

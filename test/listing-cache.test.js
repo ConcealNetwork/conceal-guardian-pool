@@ -17,6 +17,8 @@ const fullCache = () => {
   return cache;
 };
 
+const recordSeen = (id, iso) => ({ id, status: { lastSeen: iso } });
+
 describe('storeListing', () => {
   it('stores a new listing below the cap', () => {
     const cache = new NodeCache({ stdTTL: ttl, maxKeys });
@@ -33,23 +35,86 @@ describe('storeListing', () => {
     assert.equal(cache.getStats().keys, maxKeys);
   });
 
-  it('refuses a new listing when the cache is full', () => {
-    const warnings = [];
-    const cache = fullCache();
-    const stored = storeListing(cache, 'c', { n: 3 }, ttl, maxKeys, {
-      warn(message, fields) {
-        warnings.push({ message, fields });
-      },
-    });
+  it('evicts the least recently seen listing to make room when full', () => {
+    const cap = 5;
+    const cache = new NodeCache({ stdTTL: ttl, maxKeys: cap });
+    const base = Date.parse('2026-11-04T00:00:00.000Z');
 
-    assert.equal(stored, false);
-    assert.equal(cache.get('c'), undefined);
-    assert.deepEqual(cache.get('b'), { n: 2 });
-    assert.deepEqual(warnings, [
-      {
-        message: 'Rejected a listing because the node cache is full',
-        fields: { nodeId: 'c' },
+    for (let index = 0; index < cap; index++) {
+      cache.set(`n${index}`, recordSeen(`n${index}`, new Date(base + index * 1000).toISOString()));
+    }
+
+    const stored = storeListing(
+      cache,
+      'new',
+      recordSeen('new', new Date(base + 9000).toISOString()),
+      ttl,
+      cap,
+      silent
+    );
+
+    assert.equal(stored, true);
+    assert.equal(cache.get('n0'), undefined);
+    assert.notEqual(cache.get('new'), undefined);
+    assert.equal(cache.getStats().keys, cap);
+  });
+
+  it('stays bounded and does not throw under a flood past the cap', () => {
+    const cap = 5;
+    const cache = new NodeCache({ stdTTL: ttl, maxKeys: cap });
+    const base = Date.parse('2026-11-04T00:00:00.000Z');
+
+    for (let index = 0; index < 20; index++) {
+      const stored = storeListing(
+        cache,
+        `f${index}`,
+        recordSeen(`f${index}`, new Date(base + index * 1000).toISOString()),
+        ttl,
+        cap,
+        silent
+      );
+
+      assert.equal(stored, true);
+      assert.ok(cache.getStats().keys <= cap);
+    }
+
+    assert.equal(cache.getStats().keys, cap);
+  });
+
+  it('evicts entries without lastSeen before dated ones', () => {
+    const cap = 2;
+    const cache = new NodeCache({ stdTTL: ttl, maxKeys: cap });
+
+    cache.set('dated', recordSeen('dated', new Date().toISOString()));
+    cache.set('stale', { n: 1 });
+
+    const stored = storeListing(
+      cache,
+      'new',
+      recordSeen('new', new Date().toISOString()),
+      ttl,
+      cap,
+      silent
+    );
+
+    assert.equal(stored, true);
+    assert.equal(cache.get('stale'), undefined);
+    assert.notEqual(cache.get('new'), undefined);
+    assert.notEqual(cache.get('dated'), undefined);
+    assert.equal(cache.getStats().keys, cap);
+  });
+
+  it('rethrows errors that are not cache-full', () => {
+    const cache = {
+      getStats: () => ({ keys: 0 }),
+      has: () => false,
+      set: () => {
+        throw new Error('boom');
       },
-    ]);
+      keys: () => [],
+      del: () => {},
+    };
+
+    assert.throws(() => storeListing(cache, 'a', { n: 1 }, ttl, maxKeys, silent), /boom/);
   });
 });

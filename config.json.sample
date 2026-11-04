@@ -4,7 +4,8 @@
 	},
 	"cache": {
 		"expire": 600,
-		"checkPeriod": 120
+		"checkPeriod": 120,
+		"maxKeys": 500
 	},
 	"uptime": {
 		"period": 60
