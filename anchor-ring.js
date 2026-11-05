@@ -46,4 +46,15 @@ const createAnchorRing = (depth) => {
   };
 };
 
-module.exports = { createAnchorRing };
+// prior tips first, then the anchor, so the last entry stays the newest tip
+const fillFreshAnchor = (ring, anchor, priorTips) => {
+  if (Array.isArray(priorTips)) {
+    for (const tip of priorTips) {
+      ring.push(tip);
+    }
+  }
+
+  ring.push(anchor);
+};
+
+module.exports = { createAnchorRing, fillFreshAnchor };

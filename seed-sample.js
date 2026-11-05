@@ -156,6 +156,144 @@ const resolveSeedTarget = (seed, pins, resolveAddress) => {
   });
 };
 
+const tipHashPattern = /^[0-9a-f]{64}$/i;
+
+const fetchBlockHeader = (host, address, port, height, timeoutMs) =>
+  new Promise((resolve) => {
+    const body = JSON.stringify({
+      jsonrpc: '2.0',
+      id: '1',
+      method: 'getblockheaderbyheight',
+      params: { height },
+    });
+    const request = http.request(
+      {
+        host: address,
+        port,
+        path: '/json_rpc',
+        method: 'POST',
+        timeout: timeoutMs,
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(body),
+          host: `${host}:${port}`,
+        },
+      },
+      (response) => {
+        if (response.statusCode !== 200) {
+          response.resume();
+          resolve(null);
+          return;
+        }
+
+        let raw = '';
+        let settled = false;
+        const finish = (header) => {
+          if (settled) {
+            return;
+          }
+
+          settled = true;
+          resolve(header);
+        };
+
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => {
+          raw += chunk;
+
+          if (raw.length > 65536) {
+            request.destroy();
+            finish(null);
+          }
+        });
+        response.on('end', () => {
+          try {
+            const parsed = JSON.parse(raw);
+            const result = parsed && typeof parsed === 'object' ? parsed.result : null;
+
+            finish(result && typeof result === 'object' ? result : null);
+          } catch {
+            finish(null);
+          }
+        });
+      }
+    );
+
+    request.on('timeout', () => {
+      request.destroy();
+      resolve(null);
+    });
+    request.on('error', () => resolve(null));
+    request.end(body);
+  });
+
+// header at H-1 carries that block's hash and prev_hash (H-2)
+const readPriorTips = (result, height) => {
+  const header = result?.block_header;
+
+  if (result?.status !== 'OK' || !header || header.height !== height || height < 1) {
+    return [];
+  }
+
+  const hash = typeof header.hash === 'string' ? header.hash.toLowerCase() : '';
+  const prev = typeof header.prev_hash === 'string' ? header.prev_hash.toLowerCase() : '';
+
+  if (!tipHashPattern.test(hash) || !tipHashPattern.test(prev)) {
+    return [];
+  }
+
+  return [
+    { height: height - 1, hash: prev },
+    { height, hash },
+  ];
+};
+
+const dialsForAnchor = (dials, replies, anchor) => {
+  const matches = [];
+
+  if (!anchor || !Array.isArray(dials) || !Array.isArray(replies)) {
+    return matches;
+  }
+
+  for (let index = 0; index < replies.length; index++) {
+    const reply = replies[index];
+    const dial = dials[index];
+
+    if (!dial || !reply || reply.height !== anchor.height) {
+      continue;
+    }
+
+    const hash = typeof reply.top_block_hash === 'string' ? reply.top_block_hash.toLowerCase() : '';
+
+    if (hash === anchor.hash) {
+      matches.push(dial);
+    }
+  }
+
+  return matches;
+};
+
+// one seed at a time; the first usable H-2 and H-1 pair is returned and the rest are not asked
+const priorTipsFromSeeds = async (dials, height, timeoutMs, fetchHeader = fetchBlockHeader) => {
+  if (!Array.isArray(dials)) {
+    return [];
+  }
+
+  for (const dial of dials) {
+    const tips = readPriorTips(
+      await fetchHeader(dial.host, dial.address, dial.port, height, timeoutMs),
+      height
+    );
+
+    if (tips.length > 0) {
+      return tips;
+    }
+  }
+
+  return [];
+};
+
 const sampleSeed = (seed, timeoutMs, pins, resolveAddress = resolveSeedAddress) =>
   resolveSeedTarget(seed, pins, resolveAddress).then((target) =>
     target?.address ? fetchSeedInfo(target.host, target.address, target.port, timeoutMs) : null
@@ -173,9 +311,12 @@ const sampleSeeds = (seeds, timeoutMs, pins, resolveAddress = resolveSeedAddress
       const blockedHosts = [];
       const droppedHosts = [];
 
+      const dials = [];
       const replies = Promise.all(
         targets.map((target) => {
           if (!target?.address) {
+            dials.push(null);
+
             if (target?.reason === 'blocked') {
               blockedHosts.push(target.host);
             } else if (target?.reason === 'lookup') {
@@ -198,17 +339,20 @@ const sampleSeeds = (seeds, timeoutMs, pins, resolveAddress = resolveSeedAddress
           const key = `${target.address}|${target.port}`;
 
           if (seen.has(key)) {
+            dials.push(null);
             droppedHosts.push(target.host);
             return null;
           }
 
           seen.add(key);
+          dials.push({ host: target.host, address: target.address, port: target.port });
           return fetchSeedInfo(target.host, target.address, target.port, timeoutMs);
         })
       );
 
       return replies.then((resolvedReplies) => ({
         replies: resolvedReplies,
+        dials,
         rememberedHosts,
         lookupFailures,
         blockedHosts,
@@ -218,4 +362,13 @@ const sampleSeeds = (seeds, timeoutMs, pins, resolveAddress = resolveSeedAddress
   );
 };
 
-module.exports = { isSeed, resolveSeedAddress, sampleSeed, sampleSeeds };
+module.exports = {
+  dialsForAnchor,
+  fetchBlockHeader,
+  priorTipsFromSeeds,
+  isSeed,
+  readPriorTips,
+  resolveSeedAddress,
+  sampleSeed,
+  sampleSeeds,
+};

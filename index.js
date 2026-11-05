@@ -12,10 +12,10 @@ const moment = require('moment');
 const utils = require('./utils.js');
 const { sanitizeNodeUpdate } = require('./sanitize.js');
 const { probeNode } = require('./probe.js');
-const { anchorHoldMs, nextAnchor } = require('./seed-anchor.js');
-const { sampleSeeds } = require('./seed-sample.js');
+const { anchorHoldMs, anchorSlackBlocks, nextAnchor } = require('./seed-anchor.js');
+const { dialsForAnchor, priorTipsFromSeeds, sampleSeeds } = require('./seed-sample.js');
 const { cacheMaxKeys } = require('./listing-cache.js');
-const { createAnchorRing } = require('./anchor-ring.js');
+const { createAnchorRing, fillFreshAnchor } = require('./anchor-ring.js');
 const {
   admitListing,
   seedHosts,
@@ -100,7 +100,7 @@ const refreshSeedAnchor = () => {
 
   seedRefreshInFlight = true;
   sampleSeeds(config.seeds, apiTimeout, seedAddressPins)
-    .then(({ replies, rememberedHosts, lookupFailures, blockedHosts, droppedHosts }) => {
+    .then(({ replies, dials, rememberedHosts, lookupFailures, blockedHosts, droppedHosts }) => {
       if (lookupFailures.length > 0) {
         logger.warn('Seed lookup failed', { hosts: lookupFailures });
       }
@@ -125,21 +125,44 @@ const refreshSeedAnchor = () => {
 
       seedAnchor = nextAnchor(previous, replies, Date.now(), anchorHoldMs, monotonicNowMs());
 
-      if (seedAnchor) {
-        anchorRing.push(seedAnchor);
+      const noteAnchor = () => {
+        if (
+          seedAnchor &&
+          (!previous || previous.height !== seedAnchor.height || previous.hash !== seedAnchor.hash)
+        ) {
+          logger.info('Published seed anchor', {
+            height: seedAnchor.height,
+            hash: seedAnchor.hash,
+          });
+          return;
+        }
+
+        if (!seedAnchor && previous) {
+          logger.warn('Seed anchor expired');
+        }
+      };
+
+      if (!seedAnchor || anchorRing.size() > 0 || seedAnchor.height < 2) {
+        if (seedAnchor) {
+          anchorRing.push(seedAnchor);
+        }
+
+        noteAnchor();
+        return;
       }
 
-      if (
-        seedAnchor &&
-        (!previous || previous.height !== seedAnchor.height || previous.hash !== seedAnchor.hash)
-      ) {
-        logger.info('Published seed anchor', {
-          height: seedAnchor.height,
-          hash: seedAnchor.hash,
-        });
-      } else if (!seedAnchor && previous) {
-        logger.warn('Seed anchor expired');
+      const candidates = dialsForAnchor(dials, replies, seedAnchor);
+
+      if (candidates.length === 0) {
+        anchorRing.push(seedAnchor);
+        noteAnchor();
+        return;
       }
+
+      return priorTipsFromSeeds(candidates, seedAnchor.height - 1, apiTimeout).then((tips) => {
+        fillFreshAnchor(anchorRing, seedAnchor, tips);
+        noteAnchor();
+      });
     })
     .catch((error) => {
       logger.error('Seed anchor refresh failed', { message: error.message });
@@ -262,7 +285,8 @@ function filterResults(req, values) {
     filteredValues,
     isSyncedOnly,
     seedAnchor && Number.isInteger(seedAnchor.height) ? seedAnchor.height : null,
-    anchorRing
+    anchorRing,
+    anchorSlackBlocks(seedAnchor, monotonicNowMs())
   );
 }
 
@@ -305,7 +329,8 @@ function setNodeData(data, callback) {
             nodeCache,
             result.store,
             seedAnchor && Number.isInteger(seedAnchor.height) ? seedAnchor.height : null,
-            anchorRing
+            anchorRing,
+            anchorSlackBlocks(seedAnchor, monotonicNowMs())
           );
 
           if (!gate.ok) {

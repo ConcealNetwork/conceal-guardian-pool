@@ -1,7 +1,7 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { createAnchorRing } = require('../anchor-ring');
+const { createAnchorRing, fillFreshAnchor } = require('../anchor-ring');
 
 describe('createAnchorRing', () => {
   it('accumulates published anchor tips in publication order', () => {
@@ -62,6 +62,23 @@ describe('createAnchorRing', () => {
 
     assert.equal(ring.size(), 20);
     assert.equal(ring.entries()[0].height, 1);
+  });
+
+  it('records the two prior tips before the fresh anchor', () => {
+    const ring = createAnchorRing(20);
+    const anchor = { height: 10, hash: 'c'.repeat(64) };
+    const prior = [
+      { height: 8, hash: 'a'.repeat(64) },
+      { height: 9, hash: 'b'.repeat(64) },
+    ];
+
+    fillFreshAnchor(ring, anchor, prior);
+
+    assert.deepEqual(
+      ring.entries().map((entry) => entry.height),
+      [8, 9, 10]
+    );
+    assert.equal(ring.maxHeight(), 10);
   });
 
   it('hands out copies so callers cannot mutate the ring', () => {

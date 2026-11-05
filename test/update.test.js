@@ -10,7 +10,7 @@ const {
   expectedHeight,
   heightAnchor,
   heightAnchorMs,
-  heightWeekBlocks,
+  heightAheadBlocks,
   isAddressBlocked,
   isHostAllowed,
   isSubmittedHeightAccepted,
@@ -190,19 +190,19 @@ describe('validate', () => {
     assert.equal(isValidFeeAddress(42), false);
   });
 
-  it('projects height from the 2026-09-14 tip at 2 min/block', () => {
+  it('projects height from the 2026-11-05 tip at 2 min/block', () => {
     assert.equal(expectedHeight(heightAnchorMs), heightAnchor);
     assert.equal(expectedHeight(heightAnchorMs + 120000), heightAnchor + 1);
     assert.equal(
-      expectedHeight(heightAnchorMs + 7 * 24 * 60 * 60 * 1000),
-      heightAnchor + heightWeekBlocks
+      expectedHeight(heightAnchorMs + 10 * 24 * 60 * 60 * 1000),
+      heightAnchor + heightAheadBlocks
     );
   });
 
-  it('rejects a height more than a week ahead and keeps a syncing height', () => {
-    assert.equal(isSubmittedHeightAccepted(heightAnchor + heightWeekBlocks, heightAnchorMs), true);
+  it('rejects a height more than ten days ahead and keeps a syncing height', () => {
+    assert.equal(isSubmittedHeightAccepted(heightAnchor + heightAheadBlocks, heightAnchorMs), true);
     assert.equal(
-      isSubmittedHeightAccepted(heightAnchor + heightWeekBlocks + 1, heightAnchorMs),
+      isSubmittedHeightAccepted(heightAnchor + heightAheadBlocks + 1, heightAnchorMs),
       false
     );
     assert.equal(isSubmittedHeightAccepted(100, heightAnchorMs), true);
@@ -252,7 +252,7 @@ describe('sanitizeNodeUpdate', () => {
     assert.equal(sanitizeNodeUpdate(validBody({ blockchain: { height: -5 } }), nullLogger), null);
     assert.equal(
       sanitizeNodeUpdate(
-        validBody({ blockchain: { height: heightAnchor + heightWeekBlocks + 1 } }),
+        validBody({ blockchain: { height: heightAnchor + heightAheadBlocks + 1 } }),
         nullLogger,
         heightAnchorMs
       ),
@@ -263,7 +263,7 @@ describe('sanitizeNodeUpdate', () => {
     );
     assert.ok(
       sanitizeNodeUpdate(
-        validBody({ blockchain: { height: heightAnchor + heightWeekBlocks } }),
+        validBody({ blockchain: { height: heightAnchor + heightAheadBlocks } }),
         nullLogger,
         heightAnchorMs
       )
@@ -282,7 +282,7 @@ describe('sanitizeNodeUpdate', () => {
   it('logs when a submitted height is outside the accepted window', () => {
     const warnings = [];
     const logger = { warn: (msg, meta) => warnings.push({ msg, meta }) };
-    const tooHigh = heightAnchor + heightWeekBlocks + 1;
+    const tooHigh = heightAnchor + heightAheadBlocks + 1;
 
     assert.equal(
       sanitizeNodeUpdate(validBody({ blockchain: { height: tooHigh } }), logger, heightAnchorMs),
@@ -291,7 +291,7 @@ describe('sanitizeNodeUpdate', () => {
     assert.equal(warnings.length, 1);
     assert.equal(warnings[0].msg, 'Rejected node height outside accepted window');
     assert.equal(warnings[0].meta.height, tooHigh);
-    assert.equal(warnings[0].meta.maxAccepted, heightAnchor + heightWeekBlocks);
+    assert.equal(warnings[0].meta.maxAccepted, heightAnchor + heightAheadBlocks);
   });
 
   it('drops an invalid custom url but keeps the record', () => {
@@ -382,7 +382,7 @@ describe('applyDaemonInfo', () => {
 
   it('rejects a far-future daemon height without overwriting anything', () => {
     const data = { id: 'node-1', blockchain: { height: probeHeight } };
-    const farFuture = expectedHeight(probeNowMs) + heightWeekBlocks + 5;
+    const farFuture = expectedHeight(probeNowMs) + heightAheadBlocks + 5;
 
     assert.equal(applyDaemonInfo(data, { height: farFuture }, nullLogger, probeNowMs), false);
     assert.equal(data.blockchain.height, probeHeight);
@@ -471,7 +471,7 @@ describe('applyDaemonInfo', () => {
   });
 
   it('copies no tip hash when the daemon response is rejected as a whole', () => {
-    const farFuture = expectedHeight(probeNowMs) + heightWeekBlocks + 5;
+    const farFuture = expectedHeight(probeNowMs) + heightAheadBlocks + 5;
     const tip = 'cd'.repeat(32);
     const data = { id: 'node-1', blockchain: { height: probeHeight } };
 
@@ -581,7 +581,7 @@ describe('probeNode address pinning', () => {
   });
 
   it('does not list a node whose daemon height is outside the accepted window', async () => {
-    const farFuture = expectedHeight(Date.now()) + heightWeekBlocks + 50;
+    const farFuture = expectedHeight(Date.now()) + heightAheadBlocks + 50;
     const lookup = mock.method(dns, 'lookup', (_hostname, _options, callback) => {
       callback(null, [{ address: '203.0.113.10', family: 4 }]);
     });

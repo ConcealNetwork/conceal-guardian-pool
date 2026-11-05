@@ -25,6 +25,20 @@ describe('commitListing chain gate wiring', () => {
   });
 });
 
+describe('held anchor slack wiring', () => {
+  it('gives the list filter and the commit gate the same slack call', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
+    const call = 'anchorSlackBlocks(seedAnchor, monotonicNowMs())';
+    const filterAt = source.indexOf('return syncedNodes(');
+    const gateAt = source.indexOf('applyChainGate(');
+
+    assert.ok(filterAt !== -1);
+    assert.ok(gateAt !== -1);
+    assert.ok(source.slice(filterAt, filterAt + 400).includes(call));
+    assert.ok(source.slice(gateAt, gateAt + 400).includes(call));
+  });
+});
+
 describe('pool update submitter IP', () => {
   it('assigns req.ip onto the sanitized record before setNodeData', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');

@@ -390,6 +390,51 @@ describe('chainVerdict', () => {
     assert.equal(outside.status.syncedGrace, undefined);
   });
 
+  it('widens only the upper edge by the slack blocks', () => {
+    const empty = createAnchorRing(20);
+    const slack = 3;
+    const edge = anchor + bandHalf + slack;
+
+    assert.equal(chainVerdict(row(edge), anchor, empty, slack), 'unchecked');
+    assert.equal(chainVerdict(row(edge + 1), anchor, empty, slack), 'reject');
+    assert.equal(chainVerdict(row(edge), anchor, empty), 'reject');
+    assert.equal(chainVerdict(row(edge), anchor, empty, 0), 'reject');
+    assert.equal(chainVerdict(row(anchor - bandHalf), anchor, empty, slack), 'unchecked');
+    assert.equal(chainVerdict(row(anchor - bandHalf - 1), anchor, empty, slack), 'reject');
+    assert.equal(chainVerdict(row(anchor - bandHalf - 1), anchor, empty, 6), 'reject');
+  });
+
+  it('treats a slack that is not a positive integer as none', () => {
+    const empty = createAnchorRing(20);
+    const above = row(anchor + bandHalf + 1);
+
+    for (const slack of [-1, 0, 1.5, Number.NaN, '3', null, undefined]) {
+      assert.equal(chainVerdict(above, anchor, empty, slack), 'reject');
+    }
+  });
+
+  it('keeps the hash check inside the widened band', () => {
+    const slack = 4;
+    const ahead = anchor + bandHalf + slack;
+    const ring = createAnchorRing(20);
+    ring.push({ height: anchor - 1, hash: hash(anchor - 1) });
+    ring.push({ height: anchor, hash: hash(anchor) });
+
+    const listed = row(ahead, hash(ahead));
+    listed.status.isReachable = true;
+
+    assert.equal(chainVerdict(listed, anchor, ring, slack), 'grace');
+    assert.deepEqual(syncedNodes([listed], true, anchor, ring, slack), [listed]);
+    assert.equal(listed.status.syncedGrace, true);
+    assert.deepEqual(syncedNodes([listed], true, anchor, ring), []);
+
+    ring.push({ height: ahead, hash: hash(ahead) });
+
+    assert.equal(chainVerdict(row(ahead, hash(ahead)), anchor, ring, slack), 'verified');
+    assert.equal(chainVerdict(row(ahead, hash(anchor)), anchor, ring, slack), 'reject');
+    assert.equal(chainVerdict(row(ahead), anchor, ring, slack), 'reject');
+  });
+
   it('returns unchecked for an in-band height when the ring is empty', () => {
     const empty = createAnchorRing(20);
     const high = anchor + bandHalf;
@@ -607,6 +652,34 @@ describe('applyChainGate', () => {
     assert.deepEqual(cache.deleted, []);
     assert.deepEqual(cache.keys(), [syncingId, aheadId, gapId, missingId, keptId]);
     assert.equal(syncing.status.syncedGrace, undefined);
+  });
+
+  it('keeps a tip-synced row ahead of a held anchor when slack is given', () => {
+    const ring = coveredRing();
+    const slack = 3;
+    const ahead = anchor + bandHalf + slack;
+    const id = 'node-ahead-held';
+    const cache = createCache([id]);
+    const record = () => ({
+      id,
+      status: { isReachable: true },
+      blockchain: { height: ahead, tipHash: hash(ahead) },
+    });
+
+    assert.deepEqual(applyChainGate(cache, record(), anchor, ring, slack), {
+      ok: true,
+      verdict: 'grace',
+    });
+    assert.deepEqual(applyChainGate(cache, record(), anchor, ring), {
+      ok: true,
+      verdict: 'reject',
+    });
+    assert.deepEqual(applyChainGate(cache, record(), anchor, ring, slack - 1), {
+      ok: true,
+      verdict: 'reject',
+    });
+    assert.deepEqual(cache.deleted, []);
+    assert.deepEqual(cache.keys(), [id]);
   });
 
   it('clears syncedGrace when a covered mismatch rejects the row', () => {

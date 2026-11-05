@@ -75,14 +75,16 @@ const applyListingUpdate = ({ data, existing, reachable, occupantId }) => {
   return result;
 };
 
-// chain verdicts for the anchor band (anchor height - 2 .. anchor height + 2)
-// and the trailing anchor ring: verified, grace (re-checked on the next probe
-// tick), reject, or unchecked when no anchor is known. The ring maximum is the
-// last published entry (see anchor-ring.js).
-const chainVerdict = (value, anchorHeight, ring) => {
+// chain verdicts for the anchor band (anchor height - 2 .. anchor height + 2,
+// the upper edge widened by slackBlocks) and the trailing anchor ring: verified,
+// grace (re-checked on the next probe tick), reject, or unchecked when no anchor
+// is known. The ring maximum is the last published entry (see anchor-ring.js).
+const chainVerdict = (value, anchorHeight, ring, slackBlocks = 0) => {
   if (!Number.isInteger(anchorHeight)) {
     return 'unchecked';
   }
+
+  const slack = Number.isInteger(slackBlocks) && slackBlocks > 0 ? slackBlocks : 0;
 
   const chain = value.blockchain && typeof value.blockchain === 'object' ? value.blockchain : {};
   const height = Number(chain.height);
@@ -91,7 +93,7 @@ const chainVerdict = (value, anchorHeight, ring) => {
     return 'reject';
   }
 
-  if (height < anchorHeight - 2 || height > anchorHeight + 2) {
+  if (height < anchorHeight - 2 || height > anchorHeight + 2 + slack) {
     return 'reject';
   }
 
@@ -135,8 +137,8 @@ const ringCoversHeight = (ring, height) => {
 };
 
 // a ring-covered hash miss removes the listing; other rejects leave it cached
-const applyChainGate = (cache, record, anchorHeight, ring) => {
-  const verdict = chainVerdict(record, anchorHeight, ring);
+const applyChainGate = (cache, record, anchorHeight, ring, slackBlocks = 0) => {
+  const verdict = chainVerdict(record, anchorHeight, ring, slackBlocks);
 
   noteSyncedGrace(record, verdict);
 
@@ -155,7 +157,7 @@ const applyChainGate = (cache, record, anchorHeight, ring) => {
   return { ok: !covered, verdict: 'reject' };
 };
 
-const syncedNodes = (values, isSyncedOnly, anchorHeight, ring) => {
+const syncedNodes = (values, isSyncedOnly, anchorHeight, ring, slackBlocks = 0) => {
   if (!isSyncedOnly) {
     return values;
   }
@@ -169,7 +171,7 @@ const syncedNodes = (values, isSyncedOnly, anchorHeight, ring) => {
       return false;
     }
 
-    const verdict = chainVerdict(value, anchorHeight, ring);
+    const verdict = chainVerdict(value, anchorHeight, ring, slackBlocks);
     noteSyncedGrace(value, verdict);
 
     return verdict !== 'reject';
