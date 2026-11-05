@@ -6,12 +6,13 @@
 const nodeIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const hostCharsetPattern = /^[a-zA-Z0-9.\-:[\]]+$/;
 
+const config = require('./config.json');
+
 // Set true to accept 127.0.0.1 / localhost for local pool testing (port is still 1-65535).
 const allowLocalhost = false;
 
-// Tip observed 2026-11-05 03:31 UTC: height 2193403.
-const heightAnchor = 2193403;
-const heightAnchorMs = Date.parse('2026-11-05T03:31:00.000Z');
+const heightAnchor = config.height.anchor;
+const heightAnchorMs = Date.parse(config.height.anchorMs);
 const blockTimeSeconds = 120;
 const heightAheadBlocks = (10 * 24 * 60 * 60) / blockTimeSeconds;
 

@@ -18,6 +18,10 @@
 	"probe": {
 		"skipSeconds": 240
 	},
+	"height": {
+		"anchor": 2193403,
+		"anchorMs": "2026-11-05T03:31:00.000Z"
+	},
 	"seeds": [
 		{ "host": "seed1.conceal.network", "port": 16000 },
 		{ "host": "seed2.conceal.network", "port": 16000 },
