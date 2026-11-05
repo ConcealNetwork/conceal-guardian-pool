@@ -91,10 +91,125 @@ const pickEviction = (rows, incomingTier) => {
   return candidates[0];
 };
 
+// each row is judged by the tier it earned at its own admission. A seed host
+// always re-derives Tier A from its address, so the top tier never depends on
+// the database. Rows without a stored tier count as the lowest tier.
+const storedTier = (row, hosts) => {
+  if (hosts.has(probeHostName(row))) {
+    return TIER_SEED;
+  }
+
+  return Number.isInteger(row.admissionTier) ? row.admissionTier : TIER_NEW;
+};
+
+// a different id may take a host:port only from an equal or lower tier.
+// a seed-hosted row never yields, including to another seed-hosted id.
+const occupantYields = (cache, occupantId, incomingId, incomingTier, hosts) => {
+  if (typeof occupantId !== 'string' || occupantId === '' || occupantId === incomingId) {
+    return true;
+  }
+
+  const occupant = cache.get(occupantId);
+
+  if (!occupant || typeof occupant !== 'object') {
+    return true;
+  }
+
+  const occupantTier = storedTier(occupant, hosts);
+
+  return occupantTier !== TIER_SEED && occupantTier >= incomingTier;
+};
+
+const tierNewSeatsForIp = (cache, submitterIp, hosts) => {
+  const seats = [];
+
+  for (const key of cache.keys()) {
+    const row = cache.get(key);
+
+    if (!row || typeof row !== 'object' || row.submitterIp !== submitterIp) {
+      continue;
+    }
+
+    if (storedTier(row, hosts) !== TIER_NEW) {
+      continue;
+    }
+
+    seats.push({
+      id: key,
+      lastSeenMs: Date.parse(row.status?.lastSeen) || 0,
+    });
+  }
+
+  return seats;
+};
+
+// tier C is capped per submitter. Seed and uptime skip the cap. A refresh
+// keeps its seat. At the cap, that IP's oldest tier-C row makes room.
+const holdTierNewCap = (cache, record, incomingTier, perIpCap, hosts) => {
+  if (incomingTier !== TIER_NEW || cache.has(record.id)) {
+    return true;
+  }
+
+  const submitterIp = record.submitterIp;
+
+  if (typeof submitterIp !== 'string' || submitterIp === '') {
+    return false;
+  }
+
+  const seats = tierNewSeatsForIp(cache, submitterIp, hosts);
+
+  if (seats.length >= perIpCap) {
+    seats.sort((left, right) => left.lastSeenMs - right.lastSeenMs);
+    cache.del(seats[0].id);
+  }
+
+  return true;
+};
+
+const listedRows = (cache, hosts) => {
+  const rows = [];
+
+  for (const key of cache.keys()) {
+    const row = cache.get(key);
+
+    if (!row || typeof row !== 'object') {
+      continue;
+    }
+
+    rows.push({
+      id: key,
+      tier: storedTier(row, hosts),
+      lastSeenMs: Date.parse(row.status?.lastSeen) || 0,
+    });
+  }
+
+  return rows;
+};
+
+const makeRoom = (cache, record, incomingTier, hosts, maxKeys, logger) => {
+  if (cache.has(record.id) || cache.keys().length < maxKeys) {
+    return true;
+  }
+
+  const victim = pickEviction(listedRows(cache, hosts), incomingTier);
+
+  if (!victim) {
+    logger?.warn('Rejected a listing because the full node cache holds no evictable tier', {
+      nodeId: record.id,
+    });
+    return false;
+  }
+
+  cache.del(victim.id);
+
+  return true;
+};
+
 // store a listing with tiered admission: below the cap the record simply lands;
-// at the cap the lowest-tier, least-recently-seen row makes room when one exists
+// at the cap the lowest-tier, least-recently-seen row makes room when one exists.
+// a host:port already held by a protected tier is refused before any seat is freed.
 const admitListing = (cache, record, options = {}) => {
-  const { ttl, maxKeys, logger, context } = options;
+  const { ttl, maxKeys, logger, context, occupantId } = options;
   const hosts = context?.seedHosts instanceof Set ? context.seedHosts : seedHosts;
   const perIpCap = resolvePositiveInt(context?.tierNewPerIp, tierNewPerIp);
 
@@ -105,87 +220,27 @@ const admitListing = (cache, record, options = {}) => {
   // the incoming record earns its tier from its own probe host and its own
   // recent uptime history, then keeps that tier while it stays in the cache
   const incomingTier = resolveTier(record, context);
-  const storedTier = (row) => {
-    if (hosts.has(probeHostName(row))) {
-      return TIER_SEED;
-    }
 
-    return Number.isInteger(row.admissionTier) ? row.admissionTier : TIER_NEW;
-  };
-
-  // tier C is capped per submitter. Seed and uptime skip the cap. A refresh
-  // keeps its seat. At the cap, that IP's oldest tier-C row makes room before
-  // the directory rule below runs.
-  if (incomingTier === TIER_NEW) {
-    const submitterIp = record.submitterIp;
-
-    if (typeof submitterIp !== 'string' || submitterIp === '') {
-      return false;
-    }
-
-    if (!cache.has(record.id)) {
-      const sameIp = [];
-
-      for (const key of cache.keys()) {
-        const row = cache.get(key);
-
-        if (!row || typeof row !== 'object' || row.submitterIp !== submitterIp) {
-          continue;
-        }
-
-        if (storedTier(row) !== TIER_NEW) {
-          continue;
-        }
-
-        sameIp.push({
-          id: key,
-          lastSeenMs: Date.parse(row.status?.lastSeen) || 0,
-        });
-      }
-
-      if (sameIp.length >= perIpCap) {
-        sameIp.sort((left, right) => left.lastSeenMs - right.lastSeenMs);
-        cache.del(sameIp[0].id);
-      }
-    }
-  }
-
-  if (cache.has(record.id) || cache.keys().length < maxKeys) {
-    record.admissionTier = incomingTier;
-
-    return storeListing(cache, record.id, record, ttl, maxKeys, logger);
-  }
-
-  const rows = [];
-
-  for (const key of cache.keys()) {
-    const row = cache.get(key);
-
-    if (!row || typeof row !== 'object') {
-      continue;
-    }
-
-    // each row is judged by the tier it earned at its own admission. A seed
-    // host always re-derives Tier A from its address, so the top tier never
-    // depends on the database. Rows without a stored tier (never admitted
-    // through this path) count as the lowest tier.
-    rows.push({
-      id: key,
-      tier: storedTier(row),
-      lastSeenMs: Date.parse(row.status?.lastSeen) || 0,
-    });
-  }
-
-  const victim = pickEviction(rows, incomingTier);
-
-  if (!victim) {
-    logger?.warn('Rejected a listing because the full node cache holds no evictable tier', {
+  if (!occupantYields(cache, occupantId, record.id, incomingTier, hosts)) {
+    logger?.warn('Rejected a listing because its host:port is held by a protected tier', {
       nodeId: record.id,
+      occupantId,
     });
     return false;
   }
 
-  cache.del(victim.id);
+  if (!holdTierNewCap(cache, record, incomingTier, perIpCap, hosts)) {
+    return false;
+  }
+
+  if (typeof occupantId === 'string' && occupantId !== '' && occupantId !== record.id) {
+    cache.del(occupantId);
+  }
+
+  if (!makeRoom(cache, record, incomingTier, hosts, maxKeys, logger)) {
+    return false;
+  }
+
   record.admissionTier = incomingTier;
 
   return storeListing(cache, record.id, record, ttl, maxKeys, logger);

@@ -75,16 +75,10 @@ const applyListingUpdate = ({ data, existing, reachable, occupantId }) => {
   return result;
 };
 
-// refined admission filter: the coarse submit-time height window (validate.js)
-// stays unchanged; this gate narrows the synced set to the anchor band and
-// verifies daemon-reported tip hashes against the trailing anchor ring.
-// Band: anchor height - 2 .. anchor height + 2.
-//   - an in-ring (height, hash) match is verified;
-//   - a height above the ring maximum is too new for the ring: admitted under a
-//     grace flag and re-verified by the next probe tick (probe.skipSeconds);
-//     once the ring reaches the claimed height, a hash mismatch rejects the row;
-//   - a height the ring covers with no matching hash (or no hash) is rejected.
-// Ring maximum is the last published entry (see anchor-ring.js).
+// chain verdicts for the anchor band (anchor height - 2 .. anchor height + 2)
+// and the trailing anchor ring: verified, grace (re-checked on the next probe
+// tick), reject, or unchecked when no anchor is known. The ring maximum is the
+// last published entry (see anchor-ring.js).
 const chainVerdict = (value, anchorHeight, ring) => {
   if (!Number.isInteger(anchorHeight)) {
     return 'unchecked';
@@ -134,20 +128,31 @@ const noteSyncedGrace = (value, verdict) => {
   delete value.status.syncedGrace;
 };
 
+const ringCoversHeight = (ring, height) => {
+  const entries = typeof ring?.entries === 'function' ? ring.entries() : [];
+
+  return entries.some((entry) => entry.height === height);
+};
+
+// a ring-covered hash miss removes the listing; other rejects leave it cached
 const applyChainGate = (cache, record, anchorHeight, ring) => {
   const verdict = chainVerdict(record, anchorHeight, ring);
 
   noteSyncedGrace(record, verdict);
 
-  if (verdict === 'reject') {
-    if (typeof record.id === 'string' && record.id !== '') {
-      cache.del(record.id);
-    }
-
-    return { ok: false, verdict: 'reject' };
+  if (verdict !== 'reject') {
+    return { ok: true, verdict };
   }
 
-  return { ok: true, verdict };
+  const chain = record.blockchain && typeof record.blockchain === 'object' ? record.blockchain : {};
+  const height = Number(chain.height);
+  const covered = Number.isFinite(height) && ringCoversHeight(ring, height);
+
+  if (covered && typeof record.id === 'string' && record.id !== '') {
+    cache.del(record.id);
+  }
+
+  return { ok: !covered, verdict: 'reject' };
 };
 
 const syncedNodes = (values, isSyncedOnly, anchorHeight, ring) => {

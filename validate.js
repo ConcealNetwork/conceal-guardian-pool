@@ -18,7 +18,7 @@ const heightWeekBlocks = (7 * 24 * 60 * 60) / blockTimeSeconds;
 const expectedHeight = (nowMs = Date.now()) =>
   heightAnchor + Math.floor((nowMs - heightAnchorMs) / (blockTimeSeconds * 1000));
 
-// Write path: reject a fake future tip. A syncing node may report any lower height.
+// Write path: reject a height more than a week ahead of the expected tip.
 const isSubmittedHeightAccepted = (height, nowMs = Date.now()) =>
   Number.isFinite(height) && height >= 0 && height <= expectedHeight(nowMs) + heightWeekBlocks;
 

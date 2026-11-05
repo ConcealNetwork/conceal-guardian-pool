@@ -556,6 +556,97 @@ describe('admitListing', () => {
     assert.equal(cache.has(incoming.id), true);
   });
 
+  it('refuses a tier-C id that claims a higher tier host:port and frees no seat', () => {
+    const ip = '198.51.100.60';
+    const cap = 2;
+    const tierC = [
+      { id: 'c-older', lastSeen: '2026-06-02T00:00:00.000Z', host: '203.0.113.61' },
+      { id: 'c-newer', lastSeen: '2026-06-04T00:00:00.000Z', host: '203.0.113.62' },
+    ];
+    const protectedRows = [
+      {
+        id: 'uptime-held',
+        lastSeen: '2026-06-01T00:00:00.000Z',
+        tier: TIER_UPTIME,
+        host: '203.0.113.70',
+      },
+      {
+        id: 'seed-held',
+        lastSeen: '2026-05-01T00:00:00.000Z',
+        tier: TIER_SEED,
+        host: 'seed1.conceal.network',
+      },
+    ];
+    const occupants = [...tierC, ...protectedRows];
+    const cache = new NodeCache({ stdTTL: 600, maxKeys: occupants.length });
+
+    fill(
+      cache,
+      occupants.map((row) => [row.id, seat(row.id, ip, row.lastSeen, row.tier, row.host)])
+    );
+
+    const takeover = {
+      ...ipNode('c-takeover', '203.0.113.70'),
+      submitterIp: ip,
+    };
+
+    assert.equal(
+      admitListing(cache, takeover, {
+        ...withCap(0, cap, occupants.length),
+        occupantId: 'uptime-held',
+      }),
+      false
+    );
+
+    for (const row of occupants) {
+      assert.equal(cache.has(row.id), true);
+    }
+
+    assert.equal(cache.has(takeover.id), false);
+    assert.equal(cache.has('seed-held'), true);
+  });
+
+  it('replaces an equal-tier occupant and still refuses another seed id', () => {
+    const cache = new NodeCache({ stdTTL: 600, maxKeys: 2 });
+    const held = seat(
+      'c-held',
+      '198.51.100.70',
+      '2026-06-01T00:00:00.000Z',
+      TIER_NEW,
+      '203.0.113.71'
+    );
+    const incoming = {
+      ...ipNode('c-next', '203.0.113.71'),
+      submitterIp: '198.51.100.71',
+    };
+
+    cache.set(held.id, held);
+
+    assert.equal(admitListing(cache, incoming, { ...withCap(0, 2, 2), occupantId: held.id }), true);
+    assert.equal(cache.has(held.id), false);
+    assert.equal(cache.has(incoming.id), true);
+    assert.equal(cache.get(incoming.id).admissionTier, TIER_NEW);
+
+    const seedCache = new NodeCache({ stdTTL: 600, maxKeys: 2 });
+    const seedHeld = seat(
+      'seed-held',
+      '198.51.100.1',
+      '2026-06-01T00:00:00.000Z',
+      TIER_SEED,
+      'seed1.conceal.network'
+    );
+    const otherSeed = seedNode('seed-other');
+
+    seedCache.set(seedHeld.id, seedHeld);
+
+    assert.equal(
+      admitListing(seedCache, otherSeed, { ...options(0), occupantId: seedHeld.id }),
+      false
+    );
+    assert.equal(seedCache.has(seedHeld.id), true);
+    assert.equal(seedCache.has(otherSeed.id), false);
+  });
+
   it('rejects a tier-C listing with a missing or empty submitter IP', () => {
     const cap = 1;
     const room = cap + 1;

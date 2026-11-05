@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const NodeCache = require('node-cache');
 const { createAnchorRing } = require('../anchor-ring');
-const { TIER_NEW, admitListing, tierNewPerIp } = require('../admission');
+const { TIER_NEW, TIER_SEED, TIER_UPTIME, admitListing, tierNewPerIp } = require('../admission');
 const { applyChainGate } = require('../listing-policy');
 
 const hashFor = (label) => crypto.createHash('sha256').update(label).digest('hex');
@@ -51,6 +51,26 @@ assert.equal(chainCache.has(keptId), true);
 assert.equal(chainCache.get(keptId).marker, keptMarker);
 assert.equal(missed.status.syncedGrace, undefined);
 
+const syncingId = 'syncing-node';
+const syncingHeight = anchor - 50;
+
+chainCache.set(syncingId, {
+  id: syncingId,
+  blockchain: { height: syncingHeight, tipHash: hashFor(`syncing-${syncingHeight}`) },
+});
+
+const syncing = {
+  id: syncingId,
+  status: { isReachable: true },
+  blockchain: { height: syncingHeight, tipHash: hashFor(`syncing-${syncingHeight}`) },
+};
+const syncGate = applyChainGate(chainCache, syncing, anchor, ring);
+
+assert.deepEqual(syncGate, { ok: true, verdict: 'reject' });
+assert.equal(chainCache.has(syncingId), true);
+assert.equal(chainCache.has(keptId), true);
+assert.equal(chainCache.has(rejectedId), false);
+
 const sameIp = '198.51.100.10';
 const otherIp = '198.51.100.99';
 const cap = tierNewPerIp;
@@ -68,8 +88,9 @@ const sameSeats = Array.from({ length: cap }, (_, index) => {
     lastSeen: new Date(lastSeenMs).toISOString(),
   };
 });
-const oldest = sameSeats.reduce((left, right) =>
-  left.lastSeenMs < right.lastSeenMs ? left : right
+const oldest = sameSeats.reduce(
+  (left, right) => (left.lastSeenMs < right.lastSeenMs ? left : right),
+  sameSeats[0]
 );
 const keptSeats = sameSeats.filter((seat) => seat.id !== oldest.id);
 const keptSeat = keptSeats[0];
@@ -131,5 +152,48 @@ assert.equal(ipCache.get(otherId).status.lastSeen, otherLastSeen);
 assert.equal(ipCache.has(incoming.id), true);
 assert.equal(ipCache.get(incoming.id).admissionTier, TIER_NEW);
 assert.equal(ipCache.getStats().keys, cap + 1);
+
+const protectedCache = new NodeCache({ stdTTL: 600, maxKeys: 2 });
+const protectedSeen = new Date(Date.UTC(2026, 0, 1)).toISOString();
+
+protectedCache.set('seed-row', {
+  id: 'seed-row',
+  nodeHost: 'seed1.conceal.network',
+  nodePort: 16000,
+  admissionTier: TIER_SEED,
+  status: { lastSeen: protectedSeen },
+});
+protectedCache.set('uptime-row', {
+  id: 'uptime-row',
+  nodeHost: '203.0.113.40',
+  nodePort: 16000,
+  admissionTier: TIER_UPTIME,
+  submitterIp: otherIp,
+  status: { lastSeen: protectedSeen },
+});
+
+const takeover = {
+  id: 'tier-c-takeover',
+  nodeHost: '203.0.113.40',
+  nodePort: 16000,
+  submitterIp: sameIp,
+  status: { lastSeen: new Date(Date.UTC(2026, 4, 2)).toISOString() },
+};
+
+assert.equal(
+  admitListing(protectedCache, takeover, {
+    ttl: 600,
+    maxKeys: 2,
+    logger: { warn() {} },
+    occupantId: 'uptime-row',
+    context: { uptimeTicks: 0, ticksRequired: 4320 },
+  }),
+  false
+);
+assert.equal(protectedCache.has('uptime-row'), true);
+assert.equal(protectedCache.has('seed-row'), true);
+assert.equal(protectedCache.has(takeover.id), false);
+assert.equal(protectedCache.get('uptime-row').admissionTier, TIER_UPTIME);
+assert.equal(protectedCache.get('seed-row').admissionTier, TIER_SEED);
 
 console.log('E2E_ADMISSION_OK');

@@ -314,15 +314,12 @@ function setNodeData(data, callback) {
             return;
           }
 
-          if (result.evictId) {
-            nodeCache.del(result.evictId);
-          }
-
           callback(
             admitListing(nodeCache, result.store, {
               ttl: config.cache.expire,
               maxKeys: cacheMaxKeys,
               logger,
+              occupantId: result.evictId,
               context: {
                 seedHosts,
                 uptimeTicks,

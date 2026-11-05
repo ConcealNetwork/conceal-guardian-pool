@@ -39,11 +39,7 @@ const createAnchorRing = (depth) => {
 
     entries: () => entries.map((entry) => ({ ...entry })),
 
-    // Monotonic-height assumption: entries are appended in publication order,
-    // so maxHeight reads the last entry. A seed height regression would make
-    // maxHeight under-report until the ring advances. nextAnchor's 15 min hold
-    // makes regressions rare; the impact is limited to a temporarily tighter
-    // grace band, and it self-heals.
+    // entries are appended in publication order; maxHeight reads the last one
     maxHeight: () => (entries.length > 0 ? entries[entries.length - 1].height : null),
 
     size: () => entries.length,

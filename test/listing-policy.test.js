@@ -545,6 +545,73 @@ describe('applyChainGate', () => {
     assert.deepEqual(numericCache.keys(), [1, keptId]);
   });
 
+  it('keeps the listing when the reject is not a covered miss', () => {
+    const ring = coveredRing();
+    const syncingId = 'node-syncing';
+    const aheadId = 'node-ahead';
+    const gapId = 'node-gap';
+    const missingId = 'node-missing';
+    const keptId = 'node-kept';
+    const cache = createCache([syncingId, aheadId, gapId, missingId, keptId]);
+    const syncing = {
+      id: syncingId,
+      status: { syncedGrace: true, isReachable: true },
+      blockchain: { height: anchor - 50, tipHash: hash(anchor - 50) },
+    };
+    const ahead = {
+      id: aheadId,
+      status: { isReachable: true },
+      blockchain: { height: anchor + 3, tipHash: hash(anchor + 3) },
+    };
+    const gap = {
+      id: gapId,
+      status: { isReachable: true },
+      blockchain: { height: anchor - bandHalf, tipHash: hash(anchor - bandHalf) },
+    };
+    const missing = {
+      id: missingId,
+      status: { isReachable: true },
+      blockchain: {},
+    };
+
+    assert.equal(
+      ring.entries().some((entry) => entry.height === anchor - 50),
+      false
+    );
+    assert.equal(
+      ring.entries().some((entry) => entry.height === anchor + 3),
+      false
+    );
+    assert.equal(
+      ring.entries().some((entry) => entry.height === anchor - bandHalf),
+      false
+    );
+    assert.equal(chainVerdict(syncing, anchor, ring), 'reject');
+    assert.equal(chainVerdict(ahead, anchor, ring), 'reject');
+    assert.equal(chainVerdict(gap, anchor, ring), 'reject');
+    assert.equal(chainVerdict(missing, anchor, ring), 'reject');
+
+    assert.deepEqual(applyChainGate(cache, syncing, anchor, ring), {
+      ok: true,
+      verdict: 'reject',
+    });
+    assert.deepEqual(applyChainGate(cache, ahead, anchor, ring), {
+      ok: true,
+      verdict: 'reject',
+    });
+    assert.deepEqual(applyChainGate(cache, gap, anchor, ring), {
+      ok: true,
+      verdict: 'reject',
+    });
+    assert.deepEqual(applyChainGate(cache, missing, anchor, ring), {
+      ok: true,
+      verdict: 'reject',
+    });
+    assert.deepEqual(cache.deleted, []);
+    assert.deepEqual(cache.keys(), [syncingId, aheadId, gapId, missingId, keptId]);
+    assert.equal(syncing.status.syncedGrace, undefined);
+  });
+
   it('clears syncedGrace when a covered mismatch rejects the row', () => {
     const ring = coveredRing();
     const wrong = hash(anchor + 1);

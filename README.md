@@ -1,7 +1,7 @@
 # conceal-guardian-pool
 
 Pool for monitoring Conceal node Guardian instances. Also provides random selection of a node.
-The pool also has an "inactive cleanup feature". If a node does not send data for a specific ammount of time it is delisted from the pool until it sends the data again. Pool also has DDOS protection.
+The pool also has an "inactive cleanup feature". If a node does not send data for a specific ammount of time it is delisted from the pool until it sends the data again.
 
 ## API endpoints:
 
@@ -35,7 +35,7 @@ The pool also has an "inactive cleanup feature". If a node does not send data fo
 /pool/list?hasSSL=true
 ```
 
-**isSynced**: Only nodes the pool reached (`getinfo` ok) whose height sits within 2 blocks of the seed anchor (below **or above**). The anchor is the median `getinfo` height of the official seeds when at least three of those replies sit on that height and share one `top_block_hash`. Each seed is reached by resolving its name. The last resolved address is kept in memory and used only when that name fails to resolve. The pool keeps a trailing ring of the last 20 published anchor tips (height and hash) and checks each listed node's daemon-reported tip hash against it: a matching pair is verified; a height the ring has not reached yet is admitted on a grace flag and re-verified by the next probe (a hash mismatch is then rejected); a height the ring covers without a matching hash is rejected. Default is **on** (omit the query or `isSynced=true`). With no anchor, the synced set is empty. Use `isSynced=false` to include syncing or unreachable rows that are still in cache.
+**isSynced**: Only nodes the pool reached (`getinfo` ok) whose height is close to the network tip. Default is **on** (omit the query or `isSynced=true`). With no synced reference, the synced set is empty. Use `isSynced=false` to include syncing or unreachable rows that are still in cache.
 
 ```
 /pool/random?isSynced=true
@@ -88,17 +88,7 @@ An example of the result:
 
 # Trust the node list with care
 
-The remote-node list is **unauthenticated**: anyone can submit a listing to `/pool/update` without proving they control the node they submit. The pool verifies what it can — every new listing is probed with `getinfo`, daemon-reported height and tip hash are checked against the seed-anchor band and the trailing anchor ring, a covered miss removes the listing, seed-hosted and long-uptime nodes are preferred under cache pressure, and rate limits plus fail2ban cover abusive clients — but none of that is proof of ownership. A malicious operator can still run a real, reachable, in-sync daemon and get it listed.
-
-Treat `/pool/list` and `/pool/random` results as untrusted hints: run your own Conceal node, or use only endpoints from operators you trust. Do not rely on a random pool node for anything sensitive.
-
-## Operator notes
-
-* `cache.maxKeys` caps the node directory (default 30 in code; the sample config sets the same value). When the cache is full, the lowest admission tier is evicted first, least-recently-seen within its tier: seed-hosted listings are kept first, then nodes with at least `admission.uptimeThresholdDays` (3) days of recent uptime ticks, then everything else.
-* A covered chain miss removes the listing.
-* One IP may hold `admission.tierNewPerIp` tier-C listings (default 2; the sample config sets the same value). Tier-C means not seed-hosted and short of `admission.uptimeThresholdDays` of recent uptime. A further listing from that IP replaces that IP's own oldest tier-C listing.
-* The submitter IP lives only in process memory and is not published. Rate limiting is in-process only.
-* Denial log lines in `errors.log` are stable output for `deploy/fail2ban/` — see the sample filter and jail there.
+`/pool/list` and `/pool/random` are challenged but not fully authenticated. Prefer your own Conceal node, or operators you trust or can verify yourself.
 
 
 

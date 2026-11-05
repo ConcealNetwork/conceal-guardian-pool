@@ -4,22 +4,24 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 describe('commitListing chain gate wiring', () => {
-  it('runs the chain gate before host:port eviction and returns on reject', () => {
+  it('runs the chain gate before admission and leaves host:port eviction to admitListing', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
     const start = source.indexOf('const commitListing');
     const end = source.indexOf('if (mustProbe', start);
     const commit = source.slice(start, end);
     const gateAt = commit.indexOf('applyChainGate(');
-    const evictAt = commit.indexOf('if (result.evictId)');
     const rejectAt = commit.indexOf('if (!gate.ok)');
+    const admitAt = commit.indexOf('admitListing(');
 
     assert.ok(gateAt !== -1);
     assert.ok(rejectAt !== -1);
-    assert.ok(evictAt !== -1);
+    assert.ok(admitAt !== -1);
     assert.ok(gateAt < rejectAt);
-    assert.ok(rejectAt < evictAt);
-    assert.match(commit.slice(rejectAt, evictAt), /callback\(false\)/);
-    assert.match(commit.slice(rejectAt, evictAt), /return;/);
+    assert.ok(rejectAt < admitAt);
+    assert.match(commit.slice(rejectAt, admitAt), /callback\(false\)/);
+    assert.match(commit.slice(rejectAt, admitAt), /return;/);
+    assert.match(commit.slice(admitAt), /occupantId:\s*result\.evictId/);
+    assert.equal(commit.includes('nodeCache.del(result.evictId)'), false);
   });
 });
 

@@ -494,7 +494,7 @@ describe('probeNode address pinning', () => {
     try {
       const data = {
         id: 'node-1',
-        nodeHost: 'rebound.attacker.example',
+        nodeHost: 'rebound.ba.example',
         nodePort: 18081,
         status: {},
         blockchain: { height: heightAnchor },
