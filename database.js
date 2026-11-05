@@ -110,6 +110,51 @@ function database(options) {
       process.nextTick(() => callback({}));
     }
   };
+
+  // sum the client ticks a node earned over the most recent `months` calendar
+  // months (current month included). The recency bound is intentional: ticks
+  // from older months must not count toward admission tiering.
+  this.getRecentClientTicks = (nodeId, months, callback) => {
+    const validId =
+      nodeId &&
+      typeof nodeId === 'string' &&
+      nodeId.length <= 100 &&
+      /^[a-zA-Z0-9\-_]+$/.test(nodeId);
+    const window = Number.isInteger(months) && months >= 1 ? months : 1;
+
+    if (!validId) {
+      process.nextTick(() => callback(0));
+      return;
+    }
+
+    // the period list is built from moment() at call time, by calendar month
+    const periods = [];
+    let periodYear = moment().year();
+    let periodMonth = moment().month() + 1;
+
+    for (let i = 0; i < window; i++) {
+      periods.push([periodYear, periodMonth]);
+      periodMonth -= 1;
+
+      if (periodMonth === 0) {
+        periodMonth = 12;
+        periodYear -= 1;
+      }
+    }
+
+    const filter = periods.map(() => '(YEAR = ? AND MONTH = ?)').join(' OR ');
+    const selectSQL = `SELECT TICKS FROM uptime_client WHERE NODE = ? AND (${filter})`;
+    const args = [nodeId, ...periods.flat()];
+
+    try {
+      const rows = db.prepare(selectSQL).all(...args);
+      const total = rows.reduce((sum, row) => sum + (row.TICKS || 0), 0);
+      process.nextTick(() => callback(total));
+    } catch (err) {
+      console.log('Error getting the recent client ticks', err);
+      process.nextTick(() => callback(0));
+    }
+  };
 }
 
 module.exports = database;

@@ -12,10 +12,20 @@ const moment = require('moment');
 const utils = require('./utils.js');
 const { sanitizeNodeUpdate } = require('./sanitize.js');
 const { probeNode } = require('./probe.js');
-const { anchorHoldMs, nextAnchor } = require('./seed-anchor.js');
-const { sampleSeeds } = require('./seed-sample.js');
-const { cacheMaxKeys, storeListing } = require('./listing-cache.js');
+const { anchorHoldMs, anchorSlackBlocks, minOnHeight, nextAnchor } = require('./seed-anchor.js');
+const { dialsForAnchor, priorTipsFromSeeds, sampleSeeds } = require('./seed-sample.js');
+const { cacheMaxKeys } = require('./listing-cache.js');
+const { createAnchorRing, fillFreshAnchor } = require('./anchor-ring.js');
 const {
+  admitListing,
+  seedHosts,
+  tierNewPerIp,
+  trailingRingDepth,
+  uptimeMonthsWindow,
+  uptimeTicksRequired,
+} = require('./admission.js');
+const {
+  applyChainGate,
   applyListingUpdate,
   listingKey,
   mustProbe,
@@ -34,6 +44,9 @@ const apiTimeout = 3000;
 let seedAnchor = null;
 let seedRefreshInFlight = false;
 const seedAddressPins = new Map();
+
+// trailing ring of published anchor tips; feeds the refined synced-set filter
+const anchorRing = createAnchorRing(trailingRingDepth);
 
 // Hold duration follows this clock. A wall-clock step must not expire the anchor.
 const monotonicNowMs = () => Number(process.hrtime.bigint() / 1_000_000n);
@@ -87,7 +100,7 @@ const refreshSeedAnchor = () => {
 
   seedRefreshInFlight = true;
   sampleSeeds(config.seeds, apiTimeout, seedAddressPins)
-    .then(({ replies, rememberedHosts, lookupFailures, blockedHosts, droppedHosts }) => {
+    .then(({ replies, dials, rememberedHosts, lookupFailures, blockedHosts, droppedHosts }) => {
       if (lookupFailures.length > 0) {
         logger.warn('Seed lookup failed', { hosts: lookupFailures });
       }
@@ -112,17 +125,46 @@ const refreshSeedAnchor = () => {
 
       seedAnchor = nextAnchor(previous, replies, Date.now(), anchorHoldMs, monotonicNowMs());
 
-      if (
-        seedAnchor &&
-        (!previous || previous.height !== seedAnchor.height || previous.hash !== seedAnchor.hash)
-      ) {
-        logger.info('Published seed anchor', {
-          height: seedAnchor.height,
-          hash: seedAnchor.hash,
-        });
-      } else if (!seedAnchor && previous) {
-        logger.warn('Seed anchor expired');
+      const noteAnchor = () => {
+        if (
+          seedAnchor &&
+          (!previous || previous.height !== seedAnchor.height || previous.hash !== seedAnchor.hash)
+        ) {
+          logger.info('Published seed anchor', {
+            height: seedAnchor.height,
+            hash: seedAnchor.hash,
+          });
+          return;
+        }
+
+        if (!seedAnchor && previous) {
+          logger.warn('Seed anchor expired');
+        }
+      };
+
+      if (!seedAnchor || anchorRing.size() > 0 || seedAnchor.height < 2) {
+        if (seedAnchor) {
+          anchorRing.push(seedAnchor);
+        }
+
+        noteAnchor();
+        return;
       }
+
+      const candidates = dialsForAnchor(dials, replies, seedAnchor);
+
+      if (candidates.length === 0) {
+        anchorRing.push(seedAnchor);
+        noteAnchor();
+        return;
+      }
+
+      return priorTipsFromSeeds(candidates, seedAnchor.height - 1, apiTimeout, {
+        quorum: minOnHeight,
+      }).then((tips) => {
+        fillFreshAnchor(anchorRing, seedAnchor, tips);
+        noteAnchor();
+      });
     })
     .catch((error) => {
       logger.error('Seed anchor refresh failed', { message: error.message });
@@ -244,7 +286,9 @@ function filterResults(req, values) {
   return syncedNodes(
     filteredValues,
     isSyncedOnly,
-    seedAnchor && Number.isInteger(seedAnchor.height) ? seedAnchor.height : null
+    seedAnchor && Number.isInteger(seedAnchor.height) ? seedAnchor.height : null,
+    anchorRing,
+    anchorSlackBlocks(seedAnchor, monotonicNowMs())
   );
 }
 
@@ -263,51 +307,68 @@ function setNodeData(data, callback) {
         data.status.uptime = 0; // Default to 0 if no uptime data
       }
 
-      const commitListing = (record, reachable, allowEvict) => {
-        const result = applyListingUpdate({
-          data: record,
-          existing: nodeData,
-          reachable,
-          occupantId: allowEvict
-            ? occupantIdForKey(getAllNodes(nodeCache.keys()), listingKey(record), record.id)
-            : undefined,
-        });
+      // recent uptime history decides the admission tier when the cache is full
+      storage.getRecentClientTicks(data.id, uptimeMonthsWindow, (uptimeTicks) => {
+        const commitListing = (record, reachable, allowEvict) => {
+          const result = applyListingUpdate({
+            data: record,
+            existing: nodeData,
+            reachable,
+            occupantId: allowEvict
+              ? occupantIdForKey(getAllNodes(nodeCache.keys()), listingKey(record), record.id)
+              : undefined,
+          });
 
-        if (!result.ok) {
-          logger.warn(
-            `Rejected node ${record.id} listing ${listingKey(record)} (${result.reason})`
-          );
-          callback(false);
-          return;
-        }
+          if (!result.ok) {
+            logger.warn(
+              `Rejected node ${record.id} listing ${listingKey(record)} (${result.reason})`
+            );
+            callback(false);
+            return;
+          }
 
-        if (result.evictId) {
-          nodeCache.del(result.evictId);
-        }
-
-        callback(
-          storeListing(
+          const gate = applyChainGate(
             nodeCache,
-            result.store.id,
             result.store,
-            config.cache.expire,
-            cacheMaxKeys,
-            logger
-          )
-        );
-      };
+            seedAnchor && Number.isInteger(seedAnchor.height) ? seedAnchor.height : null,
+            anchorRing,
+            anchorSlackBlocks(seedAnchor, monotonicNowMs())
+          );
 
-      if (mustProbe(nodeData, data, updateCache[data.id])) {
-        probeNode(data, { logger, apiTimeout }, (probedData) => {
-          updateCache[data.id] = moment().toISOString();
-          commitListing(probedData, probedData.status.isReachable === true, true);
-        });
-      } else {
-        preserveProbedChain(data, nodeData);
-        data.status.hasSSL = nodeData.status.hasSSL;
-        data.status.isReachable = nodeData.status.isReachable;
-        commitListing(data, data.status.isReachable === true, false);
-      }
+          if (!gate.ok) {
+            logger.warn(`Rejected node ${record.id} chain gate (${gate.verdict})`);
+            callback(false);
+            return;
+          }
+
+          callback(
+            admitListing(nodeCache, result.store, {
+              ttl: config.cache.expire,
+              maxKeys: cacheMaxKeys,
+              logger,
+              occupantId: result.evictId,
+              context: {
+                seedHosts,
+                uptimeTicks,
+                ticksRequired: uptimeTicksRequired,
+                tierNewPerIp,
+              },
+            })
+          );
+        };
+
+        if (mustProbe(nodeData, data, updateCache[data.id])) {
+          probeNode(data, { logger, apiTimeout }, (probedData) => {
+            updateCache[data.id] = moment().toISOString();
+            commitListing(probedData, probedData.status.isReachable === true, true);
+          });
+        } else {
+          preserveProbedChain(data, nodeData);
+          data.status.hasSSL = nodeData.status.hasSSL;
+          data.status.isReachable = nodeData.status.isReachable;
+          commitListing(data, data.status.isReachable === true, false);
+        }
+      });
     }
   );
 }
@@ -374,6 +435,7 @@ app.post('/pool/update', concealWriteCors, updateNodeLimiter, (req, res) => {
   const record = sanitizeNodeUpdate(req.body, logger);
 
   if (record) {
+    record.submitterIp = req.ip;
     setNodeData(record, (result) => {
       res.json({ success: result });
     });

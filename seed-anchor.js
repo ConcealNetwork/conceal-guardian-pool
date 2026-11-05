@@ -2,11 +2,14 @@
 //
 // Please see the included LICENSE file for more information.
 
-const { isSubmittedHeightAccepted } = require('./validate.js');
+const { blockTimeSeconds, isSubmittedHeightAccepted } = require('./validate.js');
 
 const tipHashPattern = /^[0-9a-f]{64}$/i;
-const anchorHoldMs = 15 * 60 * 1000;
+const anchorHoldMs = 12 * 60 * 1000;
 const minOnHeight = 3;
+const blockMs = blockTimeSeconds * 1000;
+// blocks the chain can advance while a held anchor waits for the next agreement
+const maxAnchorSlackBlocks = Math.floor(anchorHoldMs / blockMs);
 
 const isCountedSeedReply = (reply, nowMs = Date.now()) => {
   if (!reply || typeof reply !== 'object') {
@@ -95,10 +98,25 @@ const nextAnchor = (
   return null;
 };
 
+// whole blocks the chain may have advanced past an anchor of this age. elapsedMs
+// is the same hold clock as nextAnchor. A fresh anchor gives 0; the result stops
+// at the blocks that fit in the hold.
+const anchorSlackBlocks = (anchor, elapsedMs) => {
+  if (!anchor || !Number.isInteger(anchor.at) || !Number.isFinite(elapsedMs)) {
+    return 0;
+  }
+
+  const age = Math.max(0, elapsedMs - anchor.at);
+
+  return Math.min(maxAnchorSlackBlocks, Math.floor(age / blockMs));
+};
+
 module.exports = {
   anchorHoldMs,
+  anchorSlackBlocks,
   isCountedSeedReply,
   lowerMedian,
+  maxAnchorSlackBlocks,
   minOnHeight,
   nextAnchor,
   publishAnchor,

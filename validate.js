@@ -9,18 +9,18 @@ const hostCharsetPattern = /^[a-zA-Z0-9.\-:[\]]+$/;
 // Set true to accept 127.0.0.1 / localhost for local pool testing (port is still 1-65535).
 const allowLocalhost = false;
 
-// Tip observed 2026-09-14: height 2159003, 33761534 CCX minted (incl. deposits).
-const heightAnchor = 2159003;
-const heightAnchorMs = Date.parse('2026-09-14T22:50:00.000Z');
+// Tip observed 2026-11-05 03:31 UTC: height 2193403.
+const heightAnchor = 2193403;
+const heightAnchorMs = Date.parse('2026-11-05T03:31:00.000Z');
 const blockTimeSeconds = 120;
-const heightWeekBlocks = (7 * 24 * 60 * 60) / blockTimeSeconds;
+const heightAheadBlocks = (10 * 24 * 60 * 60) / blockTimeSeconds;
 
 const expectedHeight = (nowMs = Date.now()) =>
   heightAnchor + Math.floor((nowMs - heightAnchorMs) / (blockTimeSeconds * 1000));
 
-// Write path: reject a fake future tip. A syncing node may report any lower height.
+// Write path: reject a height more than 10 days ahead of the expected tip.
 const isSubmittedHeightAccepted = (height, nowMs = Date.now()) =>
-  Number.isFinite(height) && height >= 0 && height <= expectedHeight(nowMs) + heightWeekBlocks;
+  Number.isFinite(height) && height >= 0 && height <= expectedHeight(nowMs) + heightAheadBlocks;
 
 // Strict canonical dotted-quad only. Non-canonical IPv4 forms (decimal '2130706433',
 // hex '0x7f000001', octal-ish '0177.0.0.1', short '127.1') return null so callers
@@ -329,7 +329,7 @@ module.exports = {
   expectedHeight,
   heightAnchor,
   heightAnchorMs,
-  heightWeekBlocks,
+  heightAheadBlocks,
   isAddressBlocked,
   isHostAllowed,
   isOmittedPort,

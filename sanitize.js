@@ -4,7 +4,7 @@
 
 const {
   expectedHeight,
-  heightWeekBlocks,
+  heightAheadBlocks,
   isHostAllowed,
   isOmittedPort,
   isSubmittedHeightAccepted,
@@ -92,7 +92,7 @@ const applyBlockchain = (record, blockchain, logger, nowMs) => {
     const height = Number(blockchain.height);
 
     if (!isSubmittedHeightAccepted(height, nowMs)) {
-      const maxAccepted = expectedHeight(nowMs) + heightWeekBlocks;
+      const maxAccepted = expectedHeight(nowMs) + heightAheadBlocks;
       logger.warn('Rejected node height outside accepted window', {
         nodeId: record.id,
         height,

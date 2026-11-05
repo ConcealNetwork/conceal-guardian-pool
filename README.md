@@ -1,11 +1,11 @@
 # conceal-guardian-pool
 
 Pool for monitoring Conceal node Guardian instances. Also provides random selection of a node.
-The pool also has an "inactive cleanup feature". If a node does not send data for a specific ammount of time it is delisted from the pool until it sends the data again. Pool also has DDOS protection.
+The pool also has an "inactive cleanup feature". If a node does not send data for a specific ammount of time it is delisted from the pool until it sends the data again.
 
 ## API endpoints:
 
-* /pool/update -> Guardian notify. Send the raw UUID from `nodedata.json` as `id`. A **new** id or a **changed** host:port is stored only if the pool can `getinfo` that target. Same host, same id may skip the probe for 4 minutes (configurable via `probe.skipSeconds`); last probed height and fee stay (the client cannot overwrite them). Height more than one week ahead of the expected tip is rejected. A syncing (low) height is accepted if the daemon answers. One listing per probe host:port: a new id replaces the old one only after a successful `getinfo`.
+* /pool/update -> Guardian notify. Send the raw UUID from `nodedata.json` as `id`. A **new** id or a **changed** host:port is stored only if the pool can `getinfo` that target. Same host, same id may skip the probe for 4 minutes (configurable via `probe.skipSeconds`); last probed height and fee stay (the client cannot overwrite them). Height more than ten days ahead of the expected tip is rejected. A syncing (low) height is accepted if the daemon answers. One listing per probe host:port: a new id replaces the old one only after a successful `getinfo`.
 * /pool/random -> Selects a random node from a list of all nodes. Additional parametes may narrow the list.
 * /pool/list -> Lists nodes in the pool. The `id` field is `sha256(guardian uuid)` hex, not the write secret. Default list is the synced set (see **isSynced**).
 * /pool/count -> Counts nodes after the same filters as list.
@@ -35,7 +35,7 @@ The pool also has an "inactive cleanup feature". If a node does not send data fo
 /pool/list?hasSSL=true
 ```
 
-**isSynced**: Only nodes the pool reached (`getinfo` ok) whose height is at least the seed anchor minus 2. The anchor is the median `getinfo` height of the official seeds when at least three of those replies sit on that height and share one `top_block_hash`. Each seed is reached by resolving its name. The last resolved address is kept in memory and used only when that name fails to resolve. Default is **on** (omit the query or `isSynced=true`). With no anchor, the synced set is empty. Use `isSynced=false` to include syncing or unreachable rows that are still in cache.
+**isSynced**: Only nodes the pool reached (`getinfo` ok) whose height is close to the network tip. Default is **on** (omit the query or `isSynced=true`). With no synced reference, the synced set is empty. Use `isSynced=false` to include syncing or unreachable rows that are still in cache.
 
 ```
 /pool/random?isSynced=true
@@ -85,5 +85,10 @@ An example of the result:
     ]
 }
 ```
+
+# Trust the node list with care
+
+`/pool/list` and `/pool/random` are challenged but not fully authenticated. Prefer your own Conceal node, or operators you trust or can verify yourself.
+
 
 

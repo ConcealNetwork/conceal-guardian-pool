@@ -98,4 +98,35 @@ describe('database (node:sqlite)', () => {
     await new Promise((r) => setImmediate(r));
     assert.equal(called, true);
   });
+
+  it('getRecentClientTicks sums only the recent month window', async () => {
+    const nodeId = 'node-recent-1';
+    const nowYear = moment().year();
+    const nowMonth = moment().month() + 1;
+    const prevYear = nowMonth === 1 ? nowYear - 1 : nowYear;
+    const prevMonth = nowMonth === 1 ? 12 : nowMonth - 1;
+    const olderMonth = prevMonth === 1 ? 12 : prevMonth - 1;
+
+    const writer = new DatabaseSync(paths.dbPath);
+    const insert = writer.prepare(
+      'INSERT INTO uptime_client(NODE, YEAR, MONTH, TICKS) VALUES(?, ?, ?, ?)'
+    );
+    insert.run(nodeId, nowYear, nowMonth, 10);
+    insert.run(nodeId, prevYear, prevMonth, 5);
+    insert.run(nodeId, prevYear, olderMonth, 999);
+    writer.close();
+
+    const total = await new Promise((resolve) => {
+      storage.getRecentClientTicks(nodeId, 2, resolve);
+    });
+
+    assert.equal(total, 15);
+  });
+
+  it('getRecentClientTicks returns 0 for invalid node ids', async () => {
+    assert.equal(await new Promise((r) => storage.getRecentClientTicks('', 2, r)), 0);
+    assert.equal(await new Promise((r) => storage.getRecentClientTicks('bad id!', 2, r)), 0);
+    assert.equal(await new Promise((r) => storage.getRecentClientTicks('x'.repeat(101), 2, r)), 0);
+    assert.equal(await new Promise((r) => storage.getRecentClientTicks(null, 2, r)), 0);
+  });
 });

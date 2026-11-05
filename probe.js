@@ -26,6 +26,9 @@ const resolveProbeTarget = (data) => {
   return { host, port: hasDomainUrl ? 443 : data.nodePort };
 };
 
+// same shape the seed anchor requires for a seed tip hash
+const tipHashPattern = /^[0-9a-f]{64}$/i;
+
 // daemon-reported fields that are copied over the submitted node data
 const daemonNumericFields = [
   'difficulty',
@@ -79,6 +82,16 @@ const applyDaemonInfo = (data, info, logger, nowMs = Date.now()) => {
   }
 
   data.blockchain.height = daemonHeight;
+
+  // the daemon tip hash feeds the anchored admission refine; a missing or
+  // malformed hash drops any stale value instead of leaving one behind
+  const tipHash = typeof info.top_block_hash === 'string' ? info.top_block_hash : '';
+
+  if (tipHashPattern.test(tipHash)) {
+    data.blockchain.tipHash = tipHash.toLowerCase();
+  } else {
+    delete data.blockchain.tipHash;
+  }
 
   if (isValidFeeAddress(info.fee_address)) {
     if ((data.blockchain.fee_address || '') !== info.fee_address) {
