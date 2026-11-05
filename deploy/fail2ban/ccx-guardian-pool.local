@@ -1,21 +1,21 @@
 # conceal-guardian-pool fail2ban jail sample.
-# Install as /etc/fail2ban/jail.d/ccx-pool.local (or merge into jail.local).
+# Install as /etc/fail2ban/jail.d/ccx-guardian-pool.local (or merge into jail.local).
 #
 # Placeholders - replace before enabling:
 #   <VPS_IP>            this server's own public IP address
 #   <apache2_proxy_IP>  the reverse proxy in front of the pool. The pool runs as
-#                       user `conceal` behind apache2 (single proxy hop) and sets
+#                       user <user> behind apache2 (single proxy hop) and sets
 #                       `trust proxy 1`, so fail2ban sees the real client IP.
 #   <operator_IP>       your own static address so you cannot lock yourself out
 #
 # Validate the filter against the real log BEFORE enabling this jail; expect
 # matched=82 on the current log:
-#   fail2ban-regex /home/conceal/.local/share/ccxNodePool/errors.log /etc/fail2ban/filter.d/ccx-pool.conf
+#   fail2ban-regex /home/<user>/.local/share/ccxNodePool/errors.log /etc/fail2ban/filter.d/ccx-guardian-pool.conf
 
-[ccx-pool]
+[ccx-guardian-pool]
 enabled = true
-filter = ccx-pool
-logpath = /home/conceal/.local/share/ccxNodePool/errors.log
+filter = ccx-guardian-pool
+logpath = /home/<user>/.local/share/ccxNodePool/errors.log
 backend = auto
 maxretry = 2
 findtime = 10m
