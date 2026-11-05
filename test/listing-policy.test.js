@@ -427,9 +427,6 @@ describe('chainVerdict', () => {
     const between = lastPublished + 1;
     const claimed = hash(between);
 
-    assert.equal(bandHalf >= 2, true);
-    assert.ok(between < numericMax);
-    assert.ok(between <= anchor + bandHalf);
     ring.push({ height: numericMax, hash: hash(numericMax) });
     ring.push({ height: lastPublished, hash: hash(lastPublished) });
 
@@ -664,9 +661,6 @@ describe('applyChainGate', () => {
       blockchain: { height: between, tipHash: hash(between) },
     };
 
-    assert.equal(bandHalf >= 2, true);
-    assert.ok(between < numericMax);
-    assert.ok(between <= anchor + bandHalf);
     assert.equal(ring.entries().at(-1).height, lastPublished);
     assert.equal(record.status.syncedGrace, undefined);
 

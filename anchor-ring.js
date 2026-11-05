@@ -40,7 +40,7 @@ const createAnchorRing = (depth) => {
     entries: () => entries.map((entry) => ({ ...entry })),
 
     // entries are appended in publication order; maxHeight reads the last one
-    maxHeight: () => (entries.length > 0 ? entries[entries.length - 1].height : null),
+    maxHeight: () => (entries.length > 0 ? entries.at(-1).height : null),
 
     size: () => entries.length,
   };
