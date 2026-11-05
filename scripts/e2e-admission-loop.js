@@ -3,7 +3,7 @@ const crypto = require('node:crypto');
 const NodeCache = require('node-cache');
 const { createAnchorRing } = require('../anchor-ring');
 const { TIER_NEW, TIER_SEED, TIER_UPTIME, admitListing, tierNewPerIp } = require('../admission');
-const { applyChainGate } = require('../listing-policy');
+const { anchorBandHalf, applyChainGate } = require('../listing-policy');
 
 const hashFor = (label) => crypto.createHash('sha256').update(label).digest('hex');
 
@@ -26,7 +26,7 @@ assert.ok(published);
 assert.equal(published.hash, coveredHash);
 assert.notEqual(missHash, published.hash);
 assert.equal(ring.maxHeight(), coveredHeight);
-assert.ok(coveredHeight >= anchor - 2 && coveredHeight <= anchor + 2);
+assert.ok(coveredHeight >= anchor - anchorBandHalf && coveredHeight <= anchor + anchorBandHalf);
 assert.notEqual(rejectedId, keptId);
 
 const chainCache = new NodeCache({ stdTTL: 600, maxKeys: 10 });

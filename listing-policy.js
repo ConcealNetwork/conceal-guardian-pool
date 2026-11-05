@@ -6,6 +6,15 @@ const config = require('./config.json');
 const { resolveProbeTarget } = require('./probe.js');
 const probeSkipMs = (config.probe?.skipSeconds ?? 240) * 1000;
 
+const resolvePositiveInt = (value, fallback) => {
+  const parsed = Math.floor(Number(value));
+
+  return Number.isInteger(parsed) && parsed >= 1 ? parsed : fallback;
+};
+
+// half-width of the synced height band around the seed anchor (default ±2)
+const anchorBandHalf = resolvePositiveInt(config.admission?.anchorBandHalf, 2);
+
 const listingKey = (data) => {
   const { host, port } = resolveProbeTarget(data);
 
@@ -75,10 +84,10 @@ const applyListingUpdate = ({ data, existing, reachable, occupantId }) => {
   return result;
 };
 
-// chain verdicts for the anchor band (anchor height - 2 .. anchor height + 2,
-// the upper edge widened by slackBlocks) and the trailing anchor ring: verified,
-// grace (re-checked on the next probe tick), reject, or unchecked when no anchor
-// is known. The ring maximum is the last published entry (see anchor-ring.js).
+// chain verdicts for the anchor band (anchor ± anchorBandHalf, the upper edge
+// widened by slackBlocks) and the trailing anchor ring: verified, grace
+// (re-checked on the next probe tick), reject, or unchecked when no anchor is
+// known. The ring maximum is the last published entry (see anchor-ring.js).
 const chainVerdict = (value, anchorHeight, ring, slackBlocks = 0) => {
   if (!Number.isInteger(anchorHeight)) {
     return 'unchecked';
@@ -93,7 +102,7 @@ const chainVerdict = (value, anchorHeight, ring, slackBlocks = 0) => {
     return 'reject';
   }
 
-  if (height < anchorHeight - 2 || height > anchorHeight + 2 + slack) {
+  if (height < anchorHeight - anchorBandHalf || height > anchorHeight + anchorBandHalf + slack) {
     return 'reject';
   }
 
@@ -179,6 +188,7 @@ const syncedNodes = (values, isSyncedOnly, anchorHeight, ring, slackBlocks = 0) 
 };
 
 module.exports = {
+  anchorBandHalf,
   applyChainGate,
   applyListingUpdate,
   chainVerdict,

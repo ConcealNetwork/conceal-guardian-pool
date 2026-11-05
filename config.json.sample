@@ -10,7 +10,8 @@
 	"admission": {
 		"trailingRingDepth": 20,
 		"uptimeThresholdDays": 3,
-		"tierNewPerIp": 2
+		"tierNewPerIp": 2,
+		"anchorBandHalf": 2
 	},
 	"uptime": {
 		"period": 60

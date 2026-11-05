@@ -26,16 +26,26 @@ describe('commitListing chain gate wiring', () => {
 });
 
 describe('held anchor slack wiring', () => {
-  it('gives the list filter and the commit gate the same slack call', () => {
+  it('gives the list filter and the commit gate the same listing-anchor resolver', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
-    const call = 'anchorSlackBlocks(seedAnchor, monotonicNowMs())';
-    const filterAt = source.indexOf('return syncedNodes(');
-    const gateAt = source.indexOf('applyChainGate(');
+    const filterAt = source.indexOf('const listingAnchor = resolveListingAnchor(');
+    const gateAt = source.indexOf('const listingAnchor = resolveListingAnchor(', filterAt + 1);
+    const syncedAt = source.indexOf('return syncedNodes(');
+    const applyAt = source.indexOf('applyChainGate(');
+    const args =
+      /resolveListingAnchor\(\s*seedAnchor,\s*lastSeedAnchor,\s*monotonicNowMs\(\)\s*\)/g;
+    const matches = source.match(args) || [];
 
     assert.ok(filterAt !== -1);
     assert.ok(gateAt !== -1);
-    assert.ok(source.slice(filterAt, filterAt + 400).includes(call));
-    assert.ok(source.slice(gateAt, gateAt + 400).includes(call));
+    assert.ok(syncedAt !== -1);
+    assert.ok(applyAt !== -1);
+    assert.equal(matches.length, 2);
+    assert.ok(filterAt < syncedAt && syncedAt < gateAt && gateAt < applyAt);
+    assert.ok(source.slice(syncedAt, syncedAt + 200).includes('listingAnchor.height'));
+    assert.ok(source.slice(syncedAt, syncedAt + 200).includes('listingAnchor.slack'));
+    assert.ok(source.slice(applyAt, applyAt + 250).includes('listingAnchor.height'));
+    assert.ok(source.slice(applyAt, applyAt + 250).includes('listingAnchor.slack'));
   });
 });
 

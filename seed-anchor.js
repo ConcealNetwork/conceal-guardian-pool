@@ -10,6 +10,11 @@ const minOnHeight = 3;
 const blockMs = blockTimeSeconds * 1000;
 // blocks the chain can advance while a held anchor waits for the next agreement
 const maxAnchorSlackBlocks = Math.floor(anchorHoldMs / blockMs);
+// after the hold expires, keep serving the last tip and widen the upper edge faster
+// than natural block time so a brief seed outage does not empty the synced set
+const fallbackSlipBlocksPerMinute = 2;
+const fallbackSlipBlockMs = 60_000 / fallbackSlipBlocksPerMinute;
+const maxFallbackSlipBlocks = 60;
 
 const isCountedSeedReply = (reply, nowMs = Date.now()) => {
   if (!reply || typeof reply !== 'object') {
@@ -100,24 +105,54 @@ const nextAnchor = (
 
 // whole blocks the chain may have advanced past an anchor of this age. elapsedMs
 // is the same hold clock as nextAnchor. A fresh anchor gives 0; the result stops
-// at the blocks that fit in the hold.
-const anchorSlackBlocks = (anchor, elapsedMs) => {
+// at maxBlocks (default: the blocks that fit in the hold). stepMs defaults to one
+// Conceal block interval; the expired-anchor fallback passes a faster step.
+const anchorSlackBlocks = (
+  anchor,
+  elapsedMs,
+  stepMs = blockMs,
+  maxBlocks = maxAnchorSlackBlocks
+) => {
   if (!anchor || !Number.isInteger(anchor.at) || !Number.isFinite(elapsedMs)) {
+    return 0;
+  }
+
+  if (!Number.isFinite(stepMs) || stepMs <= 0 || !Number.isInteger(maxBlocks) || maxBlocks < 0) {
     return 0;
   }
 
   const age = Math.max(0, elapsedMs - anchor.at);
 
-  return Math.min(maxAnchorSlackBlocks, Math.floor(age / blockMs));
+  return Math.min(maxBlocks, Math.floor(age / stepMs));
+};
+
+// live tip when seeds agree; otherwise the last published tip with faster upper slack
+const resolveListingAnchor = (live, lastKnown, elapsedMs) => {
+  if (live && Number.isInteger(live.height)) {
+    return { height: live.height, slack: anchorSlackBlocks(live, elapsedMs) };
+  }
+
+  if (lastKnown && Number.isInteger(lastKnown.height)) {
+    return {
+      height: lastKnown.height,
+      slack: anchorSlackBlocks(lastKnown, elapsedMs, fallbackSlipBlockMs, maxFallbackSlipBlocks),
+    };
+  }
+
+  return { height: null, slack: 0 };
 };
 
 module.exports = {
   anchorHoldMs,
   anchorSlackBlocks,
+  fallbackSlipBlockMs,
+  fallbackSlipBlocksPerMinute,
   isCountedSeedReply,
   lowerMedian,
   maxAnchorSlackBlocks,
+  maxFallbackSlipBlocks,
   minOnHeight,
   nextAnchor,
   publishAnchor,
+  resolveListingAnchor,
 };

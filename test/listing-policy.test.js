@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const { createAnchorRing } = require('../anchor-ring');
 const {
+  anchorBandHalf,
   applyChainGate,
   applyListingUpdate,
   chainVerdict,
@@ -234,19 +235,21 @@ describe('synced filter', () => {
   };
 
   it('keeps reachable rows inside the anchor band when no ring is known yet', () => {
+    const anchor = 2159003;
     const rows = [
-      row(2159003),
-      row(2159001),
-      row(2159005),
-      row(2159000),
-      row(2159006),
-      row(2159103),
-      row(2159003, undefined, false),
+      row(anchor),
+      row(anchor - 2),
+      row(anchor + 2),
+      row(anchor - anchorBandHalf),
+      row(anchor + anchorBandHalf),
+      row(anchor - anchorBandHalf - 1),
+      row(anchor + anchorBandHalf + 1),
+      row(anchor, undefined, false),
     ];
 
     assert.deepEqual(
-      syncedNodes(rows, true, 2159003).map((rowValue) => rowValue.blockchain.height),
-      [2159003, 2159001, 2159005]
+      syncedNodes(rows, true, anchor).map((rowValue) => rowValue.blockchain.height),
+      [anchor, anchor - 2, anchor + 2, anchor - anchorBandHalf, anchor + anchorBandHalf]
     );
   });
 
@@ -287,10 +290,11 @@ describe('synced filter', () => {
 
   it('keeps the grace window inside the upper bound', () => {
     const ring = buildRing();
-    const graceTop = row(2159005, hash(2159005));
-    const beyond = row(2159006, hash(2159006));
+    const anchor = 2159003;
+    const graceTop = row(anchor + anchorBandHalf, hash(anchor + anchorBandHalf));
+    const beyond = row(anchor + anchorBandHalf + 1, hash(anchor + anchorBandHalf + 1));
 
-    assert.deepEqual(syncedNodes([graceTop, beyond], true, 2159003, ring), [graceTop]);
+    assert.deepEqual(syncedNodes([graceTop, beyond], true, anchor, ring), [graceTop]);
   });
 
   it('rejects a grace row on hash mismatch once the ring reaches its height', () => {
@@ -331,8 +335,8 @@ describe('synced filter', () => {
 });
 
 describe('chainVerdict', () => {
-  // Measured from syncedNodes: kept heights are anchorHeight - 2 .. anchorHeight + 2.
-  const bandHalf = 2;
+  // Measured from syncedNodes: kept heights are anchor ± anchorBandHalf.
+  const bandHalf = anchorBandHalf;
   const anchor = 2159003;
   const hash = (height) => `Ab${String(height).padStart(62, '0')}`;
   const row = (height, tipHash) => ({
@@ -514,7 +518,7 @@ describe('chainVerdict', () => {
 });
 
 describe('applyChainGate', () => {
-  const bandHalf = 2;
+  const bandHalf = anchorBandHalf;
   const anchor = 2159003;
   const hash = (height) => `Ab${String(height).padStart(62, '0')}`;
 
@@ -603,7 +607,10 @@ describe('applyChainGate', () => {
     const ahead = {
       id: aheadId,
       status: { isReachable: true },
-      blockchain: { height: anchor + 3, tipHash: hash(anchor + 3) },
+      blockchain: {
+        height: anchor + anchorBandHalf + 1,
+        tipHash: hash(anchor + anchorBandHalf + 1),
+      },
     };
     const gap = {
       id: gapId,
@@ -621,7 +628,7 @@ describe('applyChainGate', () => {
       false
     );
     assert.equal(
-      ring.entries().some((entry) => entry.height === anchor + 3),
+      ring.entries().some((entry) => entry.height === anchor + anchorBandHalf + 1),
       false
     );
     assert.equal(

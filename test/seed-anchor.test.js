@@ -5,9 +5,13 @@ const http = require('node:http');
 const {
   anchorHoldMs,
   anchorSlackBlocks,
+  fallbackSlipBlockMs,
+  fallbackSlipBlocksPerMinute,
   maxAnchorSlackBlocks,
+  maxFallbackSlipBlocks,
   nextAnchor,
   publishAnchor,
+  resolveListingAnchor,
 } = require('../seed-anchor');
 const {
   dialsForAnchor,
@@ -167,6 +171,50 @@ describe('anchorSlackBlocks', () => {
 
   it('ignores a clock that reads earlier than the anchor', () => {
     assert.equal(anchorSlackBlocks(anchor, anchor.at - 5 * blockMs), 0);
+  });
+
+  it('accepts a faster step and a higher cap for the expired-anchor fallback', () => {
+    assert.equal(fallbackSlipBlocksPerMinute, 2);
+    assert.equal(fallbackSlipBlockMs, 30_000);
+    assert.equal(
+      anchorSlackBlocks(anchor, anchor.at + 3 * fallbackSlipBlockMs, fallbackSlipBlockMs, 60),
+      3
+    );
+    assert.equal(
+      anchorSlackBlocks(
+        anchor,
+        anchor.at + (maxFallbackSlipBlocks + 10) * fallbackSlipBlockMs,
+        fallbackSlipBlockMs,
+        maxFallbackSlipBlocks
+      ),
+      maxFallbackSlipBlocks
+    );
+  });
+});
+
+describe('resolveListingAnchor', () => {
+  const anchor = { height: heightAnchor, hash, at: 1_000_000 };
+
+  it('uses live hold slack while seeds still agree', () => {
+    const view = resolveListingAnchor(anchor, null, anchor.at + 2 * 120_000);
+
+    assert.deepEqual(view, { height: heightAnchor, slack: 2 });
+  });
+
+  it('falls back to the last tip with 2 blocks/minute slip after the hold', () => {
+    const elapsed = anchor.at + anchorHoldMs + 3 * fallbackSlipBlockMs;
+    const view = resolveListingAnchor(null, anchor, elapsed);
+
+    assert.equal(view.height, heightAnchor);
+    assert.equal(
+      view.slack,
+      anchorSlackBlocks(anchor, elapsed, fallbackSlipBlockMs, maxFallbackSlipBlocks)
+    );
+    assert.ok(view.slack > maxAnchorSlackBlocks);
+  });
+
+  it('returns no height when neither live nor last tip exists', () => {
+    assert.deepEqual(resolveListingAnchor(null, null, Date.now()), { height: null, slack: 0 });
   });
 });
 

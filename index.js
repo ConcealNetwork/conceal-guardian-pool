@@ -12,7 +12,7 @@ const moment = require('moment');
 const utils = require('./utils.js');
 const { sanitizeNodeUpdate } = require('./sanitize.js');
 const { probeNode } = require('./probe.js');
-const { anchorHoldMs, anchorSlackBlocks, minOnHeight, nextAnchor } = require('./seed-anchor.js');
+const { anchorHoldMs, minOnHeight, nextAnchor, resolveListingAnchor } = require('./seed-anchor.js');
 const { dialsForAnchor, priorTipsFromSeeds, sampleSeeds } = require('./seed-sample.js');
 const { cacheMaxKeys } = require('./listing-cache.js');
 const { createAnchorRing, fillFreshAnchor } = require('./anchor-ring.js');
@@ -42,6 +42,8 @@ const path = require('node:path');
 const apiTimeout = 3000;
 
 let seedAnchor = null;
+// last tip seeds agreed on; used when the hold expires so the synced set stays usable
+let lastSeedAnchor = null;
 let seedRefreshInFlight = false;
 const seedAddressPins = new Map();
 
@@ -125,6 +127,10 @@ const refreshSeedAnchor = () => {
 
       seedAnchor = nextAnchor(previous, replies, Date.now(), anchorHoldMs, monotonicNowMs());
 
+      if (seedAnchor) {
+        lastSeedAnchor = seedAnchor;
+      }
+
       const noteAnchor = () => {
         if (
           seedAnchor &&
@@ -138,7 +144,7 @@ const refreshSeedAnchor = () => {
         }
 
         if (!seedAnchor && previous) {
-          logger.warn('Seed anchor expired');
+          logger.warn('Seed anchor expired; listing falls back to the last tip with slip');
         }
       };
 
@@ -283,12 +289,14 @@ function filterResults(req, values) {
     return isAppropriate;
   });
 
+  const listingAnchor = resolveListingAnchor(seedAnchor, lastSeedAnchor, monotonicNowMs());
+
   return syncedNodes(
     filteredValues,
     isSyncedOnly,
-    seedAnchor && Number.isInteger(seedAnchor.height) ? seedAnchor.height : null,
+    listingAnchor.height,
     anchorRing,
-    anchorSlackBlocks(seedAnchor, monotonicNowMs())
+    listingAnchor.slack
   );
 }
 
@@ -327,12 +335,13 @@ function setNodeData(data, callback) {
             return;
           }
 
+          const listingAnchor = resolveListingAnchor(seedAnchor, lastSeedAnchor, monotonicNowMs());
           const gate = applyChainGate(
             nodeCache,
             result.store,
-            seedAnchor && Number.isInteger(seedAnchor.height) ? seedAnchor.height : null,
+            listingAnchor.height,
             anchorRing,
-            anchorSlackBlocks(seedAnchor, monotonicNowMs())
+            listingAnchor.slack
           );
 
           if (!gate.ok) {
