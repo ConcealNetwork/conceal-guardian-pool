@@ -274,11 +274,18 @@ const dialsForAnchor = (dials, replies, anchor) => {
   return matches;
 };
 
-// one seed at a time; the first usable H-2 and H-1 pair is returned and the rest are not asked
-const priorTipsFromSeeds = async (dials, height, timeoutMs, fetchHeader = fetchBlockHeader) => {
+const tipKey = (tips) => tips.map((tip) => `${tip.height}:${tip.hash}`).join('|');
+
+// one seed at a time; stop when `quorum` answers share one pair, otherwise seed nothing
+const priorTipsFromSeeds = async (dials, height, timeoutMs, options = {}) => {
+  const fetchHeader = options.fetchHeader ?? fetchBlockHeader;
+  const quorum = Number.isInteger(options.quorum) && options.quorum >= 1 ? options.quorum : 3;
+
   if (!Array.isArray(dials)) {
     return [];
   }
+
+  const seen = new Map();
 
   for (const dial of dials) {
     const tips = readPriorTips(
@@ -286,9 +293,18 @@ const priorTipsFromSeeds = async (dials, height, timeoutMs, fetchHeader = fetchB
       height
     );
 
-    if (tips.length > 0) {
+    if (tips.length === 0) {
+      continue;
+    }
+
+    const key = tipKey(tips);
+    const count = (seen.get(key) ?? 0) + 1;
+
+    if (count >= quorum) {
       return tips;
     }
+
+    seen.set(key, count);
   }
 
   return [];

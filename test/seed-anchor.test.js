@@ -393,27 +393,63 @@ describe('prior seed tips', () => {
     );
   });
 
-  it('stops at the first seed that returns the two tips', async () => {
+  it('stops once three seeds agree and skips the rest', async () => {
     const good = { status: 'OK', block_header: { height: 9, hash, prev_hash: prev } };
     const calls = [];
     const fetchHeader = (host) => {
       calls.push(host);
-      return Promise.resolve(host === 'seed2.conceal.network' ? good : null);
+      return Promise.resolve(host === 'seed1.conceal.network' ? null : good);
     };
-    const candidates = [
-      { host: 'seed1.conceal.network', address: '203.0.113.1', port: 16000 },
-      { host: 'seed2.conceal.network', address: '203.0.113.2', port: 16000 },
-      { host: 'seed3.conceal.network', address: '203.0.113.3', port: 16000 },
-    ];
+    const candidates = [1, 2, 3, 4, 5].map((index) => ({
+      host: `seed${index}.conceal.network`,
+      address: `203.0.113.${index}`,
+      port: 16000,
+    }));
 
-    const tips = await priorTipsFromSeeds(candidates, 9, 1000, fetchHeader);
+    const tips = await priorTipsFromSeeds(candidates, 9, 1000, { fetchHeader, quorum: 3 });
 
     assert.deepEqual(tips, [
       { height: 8, hash: prev },
       { height: 9, hash },
     ]);
-    assert.deepEqual(calls, ['seed1.conceal.network', 'seed2.conceal.network']);
-    assert.deepEqual(await priorTipsFromSeeds(candidates, 9, 1000, () => null), []);
+    assert.deepEqual(calls, [
+      'seed1.conceal.network',
+      'seed2.conceal.network',
+      'seed3.conceal.network',
+      'seed4.conceal.network',
+    ]);
+  });
+
+  it('seeds nothing when fewer than three seeds agree', async () => {
+    const good = { status: 'OK', block_header: { height: 9, hash, prev_hash: prev } };
+    const other = {
+      status: 'OK',
+      block_header: { height: 9, hash: 'c'.repeat(64), prev_hash: prev },
+    };
+    const calls = [];
+    const fetchHeader = (host) => {
+      calls.push(host);
+      if (host === 'seed3.conceal.network') {
+        return Promise.resolve(other);
+      }
+
+      return Promise.resolve(host === 'seed4.conceal.network' ? null : good);
+    };
+    const candidates = [1, 2, 3, 4].map((index) => ({
+      host: `seed${index}.conceal.network`,
+      address: `203.0.113.${index}`,
+      port: 16000,
+    }));
+
+    const tips = await priorTipsFromSeeds(candidates, 9, 1000, { fetchHeader, quorum: 3 });
+
+    assert.deepEqual(tips, []);
+    assert.deepEqual(calls, [
+      'seed1.conceal.network',
+      'seed2.conceal.network',
+      'seed3.conceal.network',
+      'seed4.conceal.network',
+    ]);
   });
 
   it('posts getblockheaderbyheight and returns the result', async () => {

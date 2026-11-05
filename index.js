@@ -12,7 +12,7 @@ const moment = require('moment');
 const utils = require('./utils.js');
 const { sanitizeNodeUpdate } = require('./sanitize.js');
 const { probeNode } = require('./probe.js');
-const { anchorHoldMs, anchorSlackBlocks, nextAnchor } = require('./seed-anchor.js');
+const { anchorHoldMs, anchorSlackBlocks, minOnHeight, nextAnchor } = require('./seed-anchor.js');
 const { dialsForAnchor, priorTipsFromSeeds, sampleSeeds } = require('./seed-sample.js');
 const { cacheMaxKeys } = require('./listing-cache.js');
 const { createAnchorRing, fillFreshAnchor } = require('./anchor-ring.js');
@@ -159,7 +159,9 @@ const refreshSeedAnchor = () => {
         return;
       }
 
-      return priorTipsFromSeeds(candidates, seedAnchor.height - 1, apiTimeout).then((tips) => {
+      return priorTipsFromSeeds(candidates, seedAnchor.height - 1, apiTimeout, {
+        quorum: minOnHeight,
+      }).then((tips) => {
         fillFreshAnchor(anchorRing, seedAnchor, tips);
         noteAnchor();
       });
